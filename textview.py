@@ -51,7 +51,6 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  <div class="hint">blue bar = branch point (between the shared and diverging token) · click cycles siblings, shift-click reverses · alt-click a word to split a new branch there</div>
  <script>
  var ALTS=__ALTS__;
- var APP=__APP__;
  var CNT=0;
  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
  function disp(s){return s.replace(/\\n/g,'\\u23ce').replace(/ /g,'\\u00b7')||'\\u2205';}
@@ -70,59 +69,26 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  }
  function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);}
  function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);}
- // Preferred channel: write the action into a hidden Streamlit text_input in
- // the parent (allow-same-origin lets us reach it) and commit it, which reruns
- // the app over the existing WebSocket — no full page reload. A counter keeps
- // each command unique so repeats still register.
+ // In-text clicks reach the app by writing into a hidden Streamlit text_input in
+ // the parent (allow-same-origin lets us reach it) and committing it, which
+ // reruns over the existing WebSocket — no page reload. A counter keeps each
+ // command unique so repeats still register. There is deliberately no reload
+ // fallback: if the input can't be reached the click is simply a no-op.
  function sendCmd(kind,value){
    try{
      var pdoc=window.parent.document;
-     // Streamlit tags keyed widgets with a `st-key-<key>` class on their
+     // Streamlit tags keyed widgets with an `st-key-<key>` class on their
      // container; that's a more reliable handle than the input's aria-label.
      var input=pdoc.querySelector('.st-key-weft_cmd input')||pdoc.querySelector('input[aria-label="weft_cmd"]');
-     if(input){
-       CNT++;
-       var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
-       setter.call(input,kind+':'+value+':'+CNT);
-       // React tracks the value via its own setter, so dispatch input to make it
-       // notice the change, then Enter to commit (Streamlit reruns on Enter).
-       input.dispatchEvent(new window.parent.Event('input',{bubbles:true}));
-       ['keydown','keypress','keyup'].forEach(function(t){
-         input.dispatchEvent(new window.parent.KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
-       });
-       // The commit reruns the app over the WebSocket (no reload). We do NOT
-       // schedule a timed fallback: the rerun tears down this iframe, but the
-       // teardown can lag the timer and fire a spurious reload. If the input is
-       // present the commit is reliable (the fallback below is only for the
-       // case where we can't reach it at all).
-       return;
-     }
+     if(!input){return;}
+     CNT++;
+     var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
+     setter.call(input,kind+':'+value+':'+CNT);
+     // The native setter defeats React's value tracker, so dispatch input to
+     // make React notice the change, then Enter to commit (Streamlit reruns).
+     input.dispatchEvent(new window.parent.Event('input',{bubbles:true}));
+     input.dispatchEvent(new window.parent.KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
    }catch(e){}
-   navFallback(kind==='split'?'splitat':'goto', value);  // full-reload fallback
- }
- // Fallback: the iframe sandbox lacks allow-top-navigation, so we navigate by
- // injecting a <script> into the (un-sandboxed) parent that sets its location.
- function navFallback(param,value){
-   var href;
-   try{href=window.parent.location.href;}catch(e){href=document.referrer;}
-   var u;
-   try{u=new URL(href);}catch(e){return;}
-   Object.keys(APP).forEach(function(k){u.searchParams.set(k,APP[k]);});
-   u.searchParams.delete('goto');u.searchParams.delete('splitat');
-   u.searchParams.set(param,value);
-   var url=u.toString();
-   try{
-     var pdoc=window.parent.document;
-     var s=pdoc.createElement('script');
-     s.textContent='location.href='+JSON.stringify(url);
-     pdoc.head.appendChild(s);pdoc.head.removeChild(s);return;
-   }catch(e){}
-   try{
-     var pd=window.parent.document;
-     var a=pd.createElement('a');a.href=url;a.target='_self';a.style.display='none';
-     pd.body.appendChild(a);a.click();pd.body.removeChild(a);return;
-   }catch(e){}
-   try{window.top.location.href=url;}catch(e){}
  }
  // Tokens: hover to highlight + show candidates; alt-click to split here.
  document.querySelectorAll('.text span[data-i]').forEach(function(s){
@@ -156,12 +122,8 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  </script></body></html>"""
 
 
-def build_text_component(loom, app_params=None):
+def build_text_component(loom):
     """Return (html, has_logprobs) for the path root..current_node.
-
-    `app_params` is the current Streamlit query-param dict (file/node); it is
-    embedded so the in-iframe JS can rebuild the parent URL when a word click
-    navigates (the sandbox blocks reading the parent location directly).
 
     Colors every token by surprisal, inserts a clickable fork marker between the
     shared token and the diverging token at each branch point, attaches per-token
@@ -246,6 +208,5 @@ def build_text_component(loom, app_params=None):
     component = (_TEMPLATE
                  .replace("__TEXT__", "".join(spans))
                  .replace("__SVG__", logprob_plot_svg(plot_points, mark_idx=mark_idx))
-                 .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/"))
-                 .replace("__APP__", json.dumps(app_params or {})))
+                 .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/")))
     return component, any_lp

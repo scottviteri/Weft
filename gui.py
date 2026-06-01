@@ -25,21 +25,22 @@ if "last_mtime" not in st.session_state:
 
 loom = st.session_state.loom
 
-# Restore from query params on refresh
-if "file" in params and "node" in params:
-    file_name = params["file"]
-    node_id = params["node"]
-    # Check if we need to load the file
-    watch_path = TREES_DIR / file_name
+# Load the tree from query params, but only restore the saved node position on
+# an actual (re)load — NOT on every rerun. During a session current_node lives
+# in session_state and is authoritative; re-applying the node param each rerun
+# would fight in-session navigation (sidebar buttons, in-text branch clicks) and
+# snap the cursor back to a stale position.
+if "file" in params:
+    watch_path = TREES_DIR / params["file"]
     if watch_path.exists():
         current_mtime = watch_path.stat().st_mtime
         if current_mtime != st.session_state.last_mtime:
-            loom.load(file_name)
+            loom.load(params["file"])
             st.session_state.last_mtime = current_mtime
-        # Restore node position
-        node = loom.tree.get_node(node_id)
-        if node:
-            loom.current_node = node
+            if "node" in params:               # restore position once, on load
+                node = loom.tree.get_node(params["node"])
+                if node:
+                    loom.current_node = node
 
 def _apply_action(action, arg):
     """Apply an in-text word action (cycle to a sibling, or split here)."""
@@ -54,13 +55,12 @@ def _apply_action(action, arg):
             offset = 0
         if offset > 0:
             loom.split_and_branch(offset)
-    if "file" in params:
+    if "file" in params:                       # for refresh durability only
         st.query_params["node"] = loom.current_node.id
 
-# Preferred channel: a hidden text_input the Current Text component writes to.
-# Committing it reruns over the WebSocket (no full page reload). Each command
-# carries a counter so repeats register. Falls back to query params (below) when
-# the component can't reach the input.
+# In-text word clicks reach the app through a hidden text_input the Current Text
+# component writes to: committing it reruns over the WebSocket (no page reload),
+# and we mutate current_node in place. A per-click counter keeps repeats unique.
 st.markdown(
     "<style>.st-key-weft_cmd{position:absolute;width:1px;height:0;"
     "overflow:hidden;opacity:0;pointer-events:none;}</style>",
@@ -72,21 +72,6 @@ if _cmd and _cmd != st.session_state.get("weft_cmd_done"):
     _parts = _cmd.split(":")
     if len(_parts) >= 2:
         _apply_action(_parts[0], _parts[1])
-
-# In-text word interactions also arrive as query params (the full-reload
-# fallback), so they survive the component->app round-trip the same way node
-# position does. The restore block above already pointed current_node at the
-# clicked node; we mutate from there and then render with the resulting live
-# node directly. We deliberately do NOT st.rerun() here: split_and_branch
-# creates a brand-new node that isn't in the saved file, so a rerun's restore
-# pass couldn't refind it by id and would snap back to the old node.
-if "goto" in params:
-    _apply_action("goto", params["goto"])
-    del st.query_params["goto"]
-
-if "splitat" in params:
-    _apply_action("splitat", params["splitat"])
-    del st.query_params["splitat"]
 
 def save_position():
     """Save current position to query params."""
@@ -283,9 +268,7 @@ with col_left:
     current_text = loom.current_node.text or ""
 
     if prefix_text or current_text:
-        app_params = {k: v for k, v in st.query_params.to_dict().items()
-                      if k not in ("goto", "splitat")}
-        component, has_lp = build_text_component(loom, app_params)
+        component, has_lp = build_text_component(loom)
         total_chars = len(prefix_text) + len(current_text)
         text_h = max(80, min(360, int(total_chars * 0.32)))
         components.html(component, height=text_h + 320, scrolling=True)
