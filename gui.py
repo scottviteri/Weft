@@ -56,31 +56,54 @@ def get_siblings():
     next_sib = siblings[idx + 1] if idx < len(siblings) - 1 else None
     return prev_sib, next_sib
 
-def collect_tree_nodes(node, prefix="", is_last=True, current_id=None):
-    """Collect tree nodes with tree-drawing characters."""
-    preview = node.text[:35].replace('\n', ' ') if node.text else "[empty]"
-    if node.text and len(node.text) > 35:
+def render_tree_html(node, prefix="", is_last=True, current_id=None, params=None):
+    """Render tree as HTML with clickable nodes."""
+    preview = node.text[:40].replace('\n', ' ').replace('<', '&lt;').replace('>', '&gt;') if node.text else "[empty]"
+    if node.text and len(node.text) > 40:
         preview += "..."
     is_current = node.id == current_id
 
     # Build the tree prefix
     if prefix == "":
         connector = ""
+        display_prefix = ""
     else:
-        connector = "└─ " if is_last else "├─ "
+        connector = "└── " if is_last else "├── "
+        display_prefix = prefix
 
-    nodes = [(node.id, prefix + connector, preview, is_current)]
+    # Style for current vs other nodes
+    if is_current:
+        style = "color: #00CED1; font-weight: bold;"
+        marker = "▶"
+    else:
+        style = "color: #888; cursor: pointer;"
+        marker = "○"
+        style += " text-decoration: underline;"
+
+    node_html = f'<span style="{style}" data-node-id="{node.id}">{marker} {preview}</span>'
+    line = f'<div style="font-family: monospace; white-space: pre; line-height: 1.4;">{display_prefix}{connector}{node_html}</div>'
+
+    lines = [line]
 
     # Prepare prefix for children
     if prefix == "":
         child_prefix = ""
     else:
-        child_prefix = prefix + ("   " if is_last else "│  ")
+        child_prefix = prefix + ("    " if is_last else "│   ")
 
     for i, child in enumerate(node.children):
         is_last_child = (i == len(node.children) - 1)
-        nodes.extend(collect_tree_nodes(child, child_prefix, is_last_child, current_id))
-    return nodes
+        lines.extend(render_tree_html(child, child_prefix, is_last_child, current_id, params))
+
+    return lines
+
+
+def collect_node_ids(node):
+    """Collect all node IDs in the tree."""
+    ids = [node.id]
+    for child in node.children:
+        ids.extend(collect_node_ids(child))
+    return ids
 
 
 # Sidebar
@@ -190,18 +213,35 @@ with st.sidebar:
 
     # Tree view
     st.subheader("Tree Structure")
-    tree_nodes = collect_tree_nodes(loom.tree.root, current_id=loom.current_node.id)
-    for node_id, tree_prefix, preview, is_current in tree_nodes:
-        marker = "▶" if is_current else "○"
-        label = f"`{tree_prefix}{marker}` {preview}"
-        if st.button(label, key=f"tree_{node_id}", use_container_width=True,
-                     type="primary" if is_current else "secondary"):
-            target_node = loom.tree.get_node(node_id)
-            if target_node:
-                loom.current_node = target_node
-                if "file" in params:
-                    st.query_params["node"] = node_id
-                st.rerun()
+    tree_html = "\n".join(render_tree_html(loom.tree.root, current_id=loom.current_node.id))
+    st.markdown(tree_html, unsafe_allow_html=True)
+
+    # Navigation dropdown
+    all_node_ids = collect_node_ids(loom.tree.root)
+    node_options = {}
+    for nid in all_node_ids:
+        n = loom.tree.get_node(nid)
+        if n:
+            preview = n.text[:30].replace('\n', ' ') if n.text else "[empty]"
+            if len(n.text or "") > 30:
+                preview += "..."
+            node_options[nid] = f"{nid[:8]}: {preview}"
+
+    current_idx = all_node_ids.index(loom.current_node.id) if loom.current_node.id in all_node_ids else 0
+    selected = st.selectbox(
+        "Jump to node:",
+        all_node_ids,
+        index=current_idx,
+        format_func=lambda x: node_options.get(x, x),
+        key="node_select"
+    )
+    if selected != loom.current_node.id:
+        target_node = loom.tree.get_node(selected)
+        if target_node:
+            loom.current_node = target_node
+            if "file" in params:
+                st.query_params["node"] = selected
+            st.rerun()
 
 # Main content
 col_left, col_right = st.columns([2, 1])
