@@ -43,15 +43,19 @@ if "file" in params and "node" in params:
 
 # In-text word interactions (clicking a token in the Current Text component)
 # arrive as query params, so they survive the component->app round-trip the
-# same way node position does. Handle them before rendering, then clear.
+# same way node position does. The restore block above already pointed
+# current_node at the clicked node; we mutate from there and then render with
+# the resulting live node directly. We deliberately do NOT st.rerun() here:
+# split_and_branch creates a brand-new node that isn't in the saved file, so a
+# rerun's restore pass couldn't refind it by id and would snap back to the old
+# node. Updating current_node in place and falling through avoids that.
 if "goto" in params:
     target = loom.tree.get_node(params["goto"])
     if target:
         loom.current_node = target
-        if "file" in params:
-            st.query_params["node"] = target.id
     del st.query_params["goto"]
-    st.rerun()
+    if "file" in params:
+        st.query_params["node"] = loom.current_node.id
 
 if "splitat" in params:
     try:
@@ -60,10 +64,9 @@ if "splitat" in params:
         offset = 0
     if offset > 0:
         loom.split_and_branch(offset)
-        if "file" in params:
-            st.query_params["node"] = loom.current_node.id
     del st.query_params["splitat"]
-    st.rerun()
+    if "file" in params:
+        st.query_params["node"] = loom.current_node.id
 
 def save_position():
     """Save current position to query params."""
