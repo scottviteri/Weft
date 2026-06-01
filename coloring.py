@@ -6,6 +6,8 @@ qualitative dual of the `analyze` readout: it shows *where* along the path the
 model committed to something non-obvious.
 """
 
+import math
+
 # Surprisal in nats at which a token is treated as maximally surprising.
 # ~6 nats ≈ a token the model gave < 0.25% probability.
 DEFAULT_MAX_SURPRISAL = 6.0
@@ -39,6 +41,24 @@ def hex_for_logprob(logprob: float, max_surprisal: float = DEFAULT_MAX_SURPRISAL
     """'#rrggbb' for a token logprob (works for both Rich styles and HTML)."""
     r, g, b = rgb_for_logprob(logprob, max_surprisal)
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def token_title(logprob: float) -> str:
+    """Hover-tooltip text for a token: exact logprob and probability."""
+    return f"logprob {logprob:.2f} · p={math.exp(logprob):.1%}"
+
+
+def color_bar_html(width_px: int = 160) -> str:
+    """A horizontal gradient legend matching the surprisal ramp (for the GUI)."""
+    stops = ", ".join(hex_for_logprob(-(i / 4) * DEFAULT_MAX_SURPRISAL) for i in range(5))
+    return (
+        '<div style="display:flex; align-items:center; gap:8px; '
+        'font-size:0.8em; color:#888; margin-top:4px;">'
+        '<span>expected</span>'
+        f'<div style="flex:0 0 {width_px}px; height:12px; border-radius:3px; '
+        f'background:linear-gradient(to right, {stops});"></div>'
+        '<span>surprising</span></div>'
+    )
 
 
 def token_segments(text: str, logprobs: dict | None) -> list[tuple[str, float | None]]:

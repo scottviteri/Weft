@@ -5,7 +5,7 @@ import streamlit as st
 from pathlib import Path
 from api import Loom, TREES_DIR
 from generator import perplexity
-from coloring import token_segments, hex_for_logprob, LEGEND
+from coloring import token_segments, hex_for_logprob, token_title, color_bar_html
 
 st.set_page_config(page_title="Loom", page_icon="🧵", layout="wide")
 
@@ -198,12 +198,6 @@ with st.sidebar:
     max_tokens = st.slider("Max tokens", 20, 300, loom.generator.config.max_tokens, 10)
     loom.generator.config.max_tokens = max_tokens
 
-    if st.button("Recompute logprobs", use_container_width=True,
-                 help="Score every node's text to (re)compute per-token logprobs for coloring"):
-        with st.spinner("Scoring nodes..."):
-            st.session_state.message = loom.recompute_logprobs()
-        st.rerun()
-
     # Tree view
     st.subheader("Tree Structure")
     tree_lines = render_tree_text(loom.tree.root, current_id=loom.current_node.id)
@@ -246,12 +240,12 @@ with col_left:
         segments = token_segments(current_text, loom.current_node.logprobs)
         if any(lp is not None for _, lp in segments):
             spans = "".join(
-                f'<span style="color:{hex_for_logprob(lp)}">{html.escape(tok)}</span>'
+                f'<span title="{token_title(lp)}" style="color:{hex_for_logprob(lp)}">{html.escape(tok)}</span>'
                 if lp is not None else html.escape(tok)
                 for tok, lp in segments
             )
             st.markdown(f'<div style="font-weight: bold; white-space: pre-wrap;">{spans}</div>', unsafe_allow_html=True)
-            st.caption(f"🎨 {LEGEND}")
+            st.markdown(color_bar_html(), unsafe_allow_html=True)
         else:
             st.markdown(f'<div style="color: #00CED1; font-weight: bold; white-space: pre-wrap;">{html.escape(current_text)}</div>', unsafe_allow_html=True)
 

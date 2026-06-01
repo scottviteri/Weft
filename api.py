@@ -3,7 +3,7 @@
 from pathlib import Path
 from datetime import datetime
 from tree import Tree, Node
-from generator import Generator, GenerationConfig, perplexity, slice_logprobs
+from generator import Generator, GenerationConfig, perplexity
 
 TREES_DIR = Path(__file__).parent / "trees"
 
@@ -233,31 +233,6 @@ class Loom:
             return f"Error: Invalid child number. Choose 1-{len(self.current_node.children)}."
         self.current_node = self.current_node.children[idx]
         return f"Moved to child {n}, node {self.current_node.id}, depth {self.depth}"
-
-    def recompute_logprobs(self) -> str:
-        """Score every node's text in context and store per-token logprobs.
-
-        Useful for trees created before logprobs were captured (or after
-        switching endpoints). Makes one scoring call per non-empty node.
-        Requires an endpoint that supports `echo` (prompt-token logprobs).
-        """
-        scored = total = 0
-        for node in list(self.tree._node_index.values()):
-            if not node.text:
-                continue
-            total += 1
-            path = self.tree.get_path_to_node(node.id)
-            prefix = "".join(n.text for n in path[:-1])
-            full = prefix + node.text
-            result = self.generator.score(full)
-            sliced = slice_logprobs(result.logprobs, len(prefix), len(full))
-            if sliced:
-                node.logprobs = sliced
-                scored += 1
-        msg = f"Recomputed logprobs for {scored}/{total} node(s)."
-        if total and not scored:
-            msg += " (Endpoint returned no prompt logprobs — it may not support `echo`.)"
-        return msg
 
     def analyze(self) -> str:
         """Analyze current node with Claude."""

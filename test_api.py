@@ -33,12 +33,6 @@ class FakeGenerator:
         self.calls.append(("multi", prompt, n))
         return [Generation(f" branch{i}", logprobs=_lp(f" branch{i}")) for i in range(n)]
 
-    def score(self, text):
-        # Echo-style: one token per char so slicing reconstructs any substring.
-        self.calls.append(("score", text))
-        return Generation(text, logprobs={"tokens": list(text),
-                                          "token_logprobs": [-0.5] * len(text)})
-
 
 @pytest.fixture
 def loom(monkeypatch):
@@ -194,17 +188,6 @@ def test_generate_is_a_single_batched_call(loom):
     multi_calls = [c for c in loom.generator.calls if c[0] == "multi"]
     assert len(multi_calls) == 1
     assert multi_calls[0][2] == 4  # asked for 4 branches in one request
-
-
-def test_recompute_logprobs_scores_each_node(loom):
-    loom.write("seed")
-    loom.write(" more")  # child node, prefix "seed"
-    result = loom.recompute_logprobs()
-    assert "2/2" in result
-    child = loom.current_node
-    assert "".join(child.logprobs["tokens"]) == " more"  # only the node's own text
-    root = loom.tree.root
-    assert "".join(root.logprobs["tokens"]) == "seed"
 
 
 # --- split / trim -------------------------------------------------------

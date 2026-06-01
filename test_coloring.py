@@ -9,9 +9,11 @@ from coloring import (
     surprisal_fraction,
     rgb_for_logprob,
     hex_for_logprob,
+    token_title,
+    color_bar_html,
     DEFAULT_MAX_SURPRISAL,
 )
-from generator import mean_logprob, perplexity, slice_logprobs
+from generator import mean_logprob, perplexity
 
 
 # --- token_segments -----------------------------------------------------
@@ -54,6 +56,18 @@ def test_hex_format():
     assert hex_for_logprob(-DEFAULT_MAX_SURPRISAL) == "#ff3c3c"
 
 
+def test_token_title_shows_logprob_and_probability():
+    assert token_title(0.0) == "logprob 0.00 · p=100.0%"
+    assert "logprob -2.00" in token_title(-2.0)
+
+
+def test_color_bar_spans_the_ramp():
+    bar = color_bar_html()
+    assert "linear-gradient" in bar
+    assert "#808080" in bar  # confident endpoint
+    assert "#ff3c3c" in bar  # surprising endpoint
+
+
 # --- metrics ------------------------------------------------------------
 
 def test_mean_logprob_and_perplexity():
@@ -72,22 +86,3 @@ def test_mean_logprob_skips_none_entries():
     # The first prompt token has no context, so its logprob is None.
     lp = {"tokens": ["a", "b"], "token_logprobs": [None, -2.0]}
     assert mean_logprob(lp) == -2.0
-
-
-# --- slice_logprobs -----------------------------------------------------
-
-def test_slice_logprobs_extracts_node_region():
-    lp = {"tokens": list("seed more"), "token_logprobs": [-0.5] * 9}
-    out = slice_logprobs(lp, 4, 9)  # the " more" suffix
-    assert "".join(out["tokens"]) == " more"
-    assert len(out["token_logprobs"]) == 5
-
-
-def test_slice_logprobs_none_when_region_empty():
-    lp = {"tokens": list("ab"), "token_logprobs": [-0.1, -0.2]}
-    assert slice_logprobs(lp, 5, 9) is None
-
-
-def test_slice_logprobs_none_on_missing_or_mismatched():
-    assert slice_logprobs(None, 0, 3) is None
-    assert slice_logprobs({"tokens": ["a"], "token_logprobs": []}, 0, 1) is None

@@ -47,34 +47,6 @@ def mean_logprob(logprobs: dict | None) -> float | None:
     return sum(lps) / len(lps)
 
 
-def slice_logprobs(logprobs: dict | None, start_char: int, end_char: int) -> dict | None:
-    """Return the tokens/logprobs whose text falls within [start_char, end_char).
-
-    Used to pull one node's tokens out of an echoed full-prompt scoring. A
-    token straddling either boundary is dropped, so the returned tokens join
-    back to exactly text[start_char:end_char] when alignment is clean.
-    """
-    if not logprobs:
-        return None
-    tokens = logprobs.get("tokens") or []
-    tlps = logprobs.get("token_logprobs") or []
-    if len(tokens) != len(tlps):
-        return None
-
-    out_tokens, out_lps, pos = [], [], 0
-    for tok, lp in zip(tokens, tlps):
-        tok_end = pos + len(tok)
-        if pos >= start_char and tok_end <= end_char:
-            out_tokens.append(tok)
-            out_lps.append(lp)
-        pos = tok_end
-        if pos >= end_char:
-            break
-    if not out_tokens:
-        return None
-    return {"tokens": out_tokens, "token_logprobs": out_lps}
-
-
 def perplexity(logprobs: dict | None) -> float | None:
     """Perplexity (exp of mean surprisal); lower = the model was more confident."""
     m = mean_logprob(logprobs)
@@ -143,22 +115,6 @@ class Generator:
             max_tokens=tokens,
             temperature=temp,
             top_p=self.config.top_p,
-            logprobs=1,
-        )
-        return _extract(response.choices[0])
-
-    def score(self, text: str) -> Generation:
-        """Score existing text: echo it back with per-token logprobs.
-
-        No sampling — this asks the model how probable the given tokens are
-        in context, used to (re)compute logprobs for text already in the tree.
-        """
-        response = self.client.completions.create(
-            model=self.config.model,
-            prompt=text,
-            max_tokens=1,
-            temperature=0,
-            echo=True,
             logprobs=1,
         )
         return _extract(response.choices[0])

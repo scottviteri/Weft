@@ -75,12 +75,6 @@ them by how confident the model was. This is the path-local shadow of pyloom's
 block multiverse—it shows surprise along the branch you took, not (yet) the
 untaken branches, which would need top-*k* logprobs.
 
-Logprobs are captured at generation time. For trees made before that (or to
-re-score after switching models), `loom.recompute_logprobs()` (also a GUI
-button) scores each node's existing text—but this needs an endpoint that
-supports `echo`; some dedicated endpoints don't, in which case it reports that
-no prompt logprobs were returned.
-
 ### Loom as a library agents can drive
 
 A second axis is **substrate**. Most looms are human GUIs or notes-app plugins;
