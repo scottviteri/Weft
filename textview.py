@@ -25,9 +25,13 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  .text{white-space:pre-wrap;line-height:1.75;font-size:1.02rem;}
  .text span{border-radius:2px;}
  .cur{font-weight:bold;}
- .fork{display:inline-block;width:0;border-left:3px solid #6aa3ff;height:1.05em;
-   vertical-align:-0.2em;margin:0 1px;padding:0 1px;cursor:pointer;border-radius:1px;}
- .fork:hover{border-left-color:#ffd23c;box-shadow:0 0 0 2px rgba(255,210,60,.35);}
+ /* Visible 8px pill, but content-box padding makes the click target ~18px. */
+ .fork{display:inline-block;box-sizing:content-box;width:8px;height:1em;
+   padding:2px 5px;margin:0 1px;vertical-align:-0.2em;cursor:pointer;
+   background:#6aa3ff;background-clip:content-box;border-radius:3px;
+   box-shadow:0 0 4px rgba(106,163,255,.7);transition:background .12s,box-shadow .12s;}
+ .fork:hover{background:#ffd23c;background-clip:content-box;box-shadow:0 0 7px rgba(255,210,60,.95);}
+ .fork:active{background:#ffb300;background-clip:content-box;}
  .hl{background:rgba(255,221,0,.45);}
  .altbar{min-height:104px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(136,136,136,.25);}
  .alttitle{font-size:.7rem;color:#888;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;}
