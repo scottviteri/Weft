@@ -11,6 +11,8 @@ from coloring import (
     hex_for_logprob,
     token_title,
     color_bar_html,
+    alt_bar_items,
+    logprob_plot_svg,
     DEFAULT_MAX_SURPRISAL,
 )
 from generator import mean_logprob, perplexity
@@ -66,6 +68,45 @@ def test_color_bar_spans_the_ramp():
     assert "linear-gradient" in bar
     assert "#808080" in bar  # confident endpoint
     assert "#ff3c3c" in bar  # surprising endpoint
+
+
+# --- alt_bar_items ------------------------------------------------------
+
+def test_alt_bar_items_sorted_desc_and_skips_none():
+    out = alt_bar_items({" a": -1.0, " b": -0.1, " c": None})
+    assert [t for t, _ in out] == [" b", " a"]  # most probable first, None dropped
+    assert out[0][1] == pytest.approx(math.exp(-0.1))
+
+
+def test_alt_bar_items_empty_inputs():
+    assert alt_bar_items(None) == []
+    assert alt_bar_items({}) == []
+
+
+def test_alt_bar_items_respects_limit():
+    out = alt_bar_items({"a": -1.0, "b": -2.0, "c": -3.0}, limit=2)
+    assert len(out) == 2
+    assert [t for t, _ in out] == ["a", "b"]
+
+
+# --- logprob_plot_svg ---------------------------------------------------
+
+def test_logprob_plot_svg_has_a_point_per_token():
+    # points are (global_index, logprob) pairs in reading order
+    svg = logprob_plot_svg([(0, -0.1), (1, -2.0), (2, -5.0)])
+    assert svg.count("<circle") == 3
+    assert "polyline" in svg
+    assert 'data-idx="2"' in svg
+
+
+def test_logprob_plot_svg_uses_supplied_indices():
+    # The span index is global (prefix + current), so it need not start at 0.
+    svg = logprob_plot_svg([(7, -0.1), (8, -2.0)])
+    assert 'id="p7"' in svg and 'id="p8"' in svg
+
+
+def test_logprob_plot_svg_empty_without_logprobs():
+    assert logprob_plot_svg([(0, None)]) == ""
 
 
 # --- metrics ------------------------------------------------------------

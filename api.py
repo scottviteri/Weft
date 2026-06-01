@@ -202,6 +202,22 @@ class Loom:
         """Shorthand: keep only the first N characters of current node."""
         return self.split(keep_chars, keep_remainder=False)
 
+    def split_and_branch(self, char_index: int) -> str:
+        """Split current node at char_index and open a fresh empty sibling.
+
+        The text after char_index becomes one child (the path you already
+        took); a new empty child is added beside it and becomes current, so you
+        can write or generate an alternative continuation from that point. This
+        is the in-text "branch here" action used by the GUI.
+        """
+        split_node_id = self.current_node.id
+        result = self.split(char_index, keep_remainder=True)
+        if result.startswith("Error"):
+            return result
+        new_node = self.tree.add_branch(split_node_id, "")
+        self.current_node = new_node
+        return f"Split at {char_index} and opened new sibling branch {new_node.id}."
+
     def up(self) -> str:
         """Go to parent node."""
         if self.current_node.parent_id:

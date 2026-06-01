@@ -8,7 +8,12 @@ from dataclasses import dataclass, field
 # Together dedicated endpoints get a fresh hash suffix each time they're
 # recreated, so the model is read from $WEFT_MODEL when set. Update this
 # fallback or export WEFT_MODEL to point at your current endpoint.
-DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-65239313"
+DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-746edaf8"
+
+# How many candidate tokens to request per position. Dedicated endpoints bill
+# per GPU-time (not per token), so capturing the top-k alternatives alongside
+# the sampled token is essentially free and powers the hover "candidates" bar.
+TOP_K = 5
 
 
 @dataclass
@@ -54,14 +59,23 @@ def perplexity(logprobs: dict | None) -> float | None:
 
 
 def _extract(choice) -> Generation:
-    """Build a Generation from a Together completion choice."""
+    """Build a Generation from a Together completion choice.
+
+    Captures the sampled tokens and their logprobs, plus the top-k candidate
+    tokens per position (`top_logprobs`) when the endpoint returns them. Each
+    top_logprobs entry is a {token: logprob} dict; we normalize to plain dicts
+    so the whole structure round-trips through JSON unchanged.
+    """
     lp = getattr(choice, "logprobs", None)
     logprobs = None
     if lp is not None:
         tokens = getattr(lp, "tokens", None)
         token_logprobs = getattr(lp, "token_logprobs", None)
+        top = getattr(lp, "top_logprobs", None)
         if tokens is not None or token_logprobs is not None:
             logprobs = {"tokens": tokens, "token_logprobs": token_logprobs}
+            if top is not None:
+                logprobs["top_logprobs"] = [dict(d) if d is not None else None for d in top]
     return Generation(text=choice.text, logprobs=logprobs)
 
 
@@ -95,7 +109,7 @@ class Generator:
             temperature=temp,
             top_p=self.config.top_p,
             n=n,
-            logprobs=1,
+            logprobs=TOP_K,
         )
         return [_extract(c) for c in response.choices]
 
@@ -115,6 +129,6 @@ class Generator:
             max_tokens=tokens,
             temperature=temp,
             top_p=self.config.top_p,
-            logprobs=1,
+            logprobs=TOP_K,
         )
         return _extract(response.choices[0])

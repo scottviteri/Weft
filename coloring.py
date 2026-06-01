@@ -6,6 +6,7 @@ qualitative dual of the `analyze` readout: it shows *where* along the path the
 model committed to something non-obvious.
 """
 
+import html as _html
 import math
 
 # Surprisal in nats at which a token is treated as maximally surprising.
@@ -77,3 +78,67 @@ def token_segments(text: str, logprobs: dict | None) -> list[tuple[str, float | 
     if "".join(tokens) != text:
         return [(text, None)]
     return list(zip(tokens, lps))
+
+
+def alt_bar_items(top_at_pos: dict | None, limit: int | None = None):
+    """Candidate next-tokens at one position, as (token, probability) pairs.
+
+    Takes one entry of the endpoint's `top_logprobs` (a {token: logprob} dict),
+    drops None logprobs, and returns the candidates sorted most-probable first.
+    Powers the hover "candidates" bar; returns [] when nothing is available.
+    """
+    if not top_at_pos:
+        return []
+    items = [(tok, math.exp(lp)) for tok, lp in top_at_pos.items() if lp is not None]
+    items.sort(key=lambda x: x[1], reverse=True)
+    return items[:limit] if limit else items
+
+
+def logprob_plot_svg(points, width: int = 340, height: int = 170,
+                     max_surprisal: float = DEFAULT_MAX_SURPRISAL) -> str:
+    """An SVG line plot of token logprob vs. token index.
+
+    `points` is an iterable of (id_index, logprob) pairs in reading order;
+    entries with logprob None are skipped. The y-axis runs from 0 (top,
+    confident) down to ``-max_surprisal`` (bottom, surprising); each point is
+    colored by the same ramp as the text and carries ``id=f"p{id_index}"`` /
+    ``data-idx`` so the matching token span can cross-highlight it. The
+    id_index need not be contiguous (the spans use a single global index across
+    prefix + current text). Returns "" when no point carries a logprob.
+    """
+    pts = [(idx, lp) for idx, lp in points if lp is not None]
+    if not pts:
+        return ""
+    left, top, right, bottom = 30, 12, 12, 24
+    pw = max(1, width - left - right)
+    ph = max(1, height - top - bottom)
+    m = len(pts)
+
+    def x(k):
+        return left + (pw * k / (m - 1) if m > 1 else pw / 2)
+
+    def y(lp):
+        return top + ph * surprisal_fraction(lp, max_surprisal)
+
+    coords = [(x(k), y(lp), idx, lp) for k, (idx, lp) in enumerate(pts)]
+    poly = " ".join(f"{px:.1f},{py:.1f}" for px, py, _, _ in coords)
+    circles = "".join(
+        f'<circle class="pt" id="p{idx}" data-idx="{idx}" cx="{px:.1f}" cy="{py:.1f}" '
+        f'r="3" fill="{hex_for_logprob(lp, max_surprisal)}" stroke="#fff" '
+        f'stroke-width="0"><title>{_html.escape(token_title(lp))}</title></circle>'
+        for px, py, idx, lp in coords
+    )
+    axis = (
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + ph}" stroke="#bbb"/>'
+        f'<line x1="{left}" y1="{top + ph}" x2="{left + pw}" y2="{top + ph}" stroke="#bbb"/>'
+        f'<text x="{left - 4}" y="{top + 4}" font-size="9" fill="#888" text-anchor="end">0</text>'
+        f'<text x="{left - 4}" y="{top + ph}" font-size="9" fill="#888" text-anchor="end">-{max_surprisal:g}</text>'
+        f'<text x="{left + pw / 2:.0f}" y="{top + ph + 18}" font-size="9" fill="#888" text-anchor="middle">token index</text>'
+    )
+    return (
+        f'<svg viewBox="0 0 {width} {height}" width="100%" '
+        f'style="max-width:{width}px; height:auto; overflow:visible;">'
+        f'{axis}'
+        f'<polyline points="{poly}" fill="none" stroke="#888" stroke-width="1" opacity="0.5"/>'
+        f'{circles}</svg>'
+    )

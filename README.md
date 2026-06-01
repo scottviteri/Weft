@@ -45,8 +45,8 @@ This project is a simplified reimplementation of [Loom](https://github.com/socke
 | LLM Backend | OpenAI, GooseAI, AI21 | Together AI |
 | Meta-analysis | No | Claude integration for analyzing continuations |
 | Split/trim | No | Yes (for handling loops) |
-| Block multiverse | Yes | No |
-| Logprobs tracking | Yes | Yes (per-token, saved to each node) |
+| Block multiverse | Yes | Partial — top-k next-token candidates on hover |
+| Logprobs tracking | Yes | Yes (per-token + top-k, saved to each node) |
 | Complexity | Full-featured | Minimal |
 
 Weft is intentionally simpler on the *selection* axis—a minimal viable loom for
@@ -68,14 +68,29 @@ on the interpretation axis it's currently the only occupant. With per-token
 logprobs now saved alongside each node, you get the quantitative readout (branch
 *probabilities*) and the qualitative one (branch *meaning*) side by side.
 
-Both UIs surface those logprobs directly: the current node's text is colored
-per-token by **surprisal** (dim grey = expected, bright red = the model took a
-turn), and generated branches are tagged with **perplexity** so you can rank
-them by how confident the model was. In the GUI you can hover any token for its
-exact logprob and probability, with a gradient color-bar legend for the scale.
-This is the path-local shadow of pyloom's block multiverse—it shows surprise
-along the branch you took, not (yet) the untaken branches, which would need
-top-*k* logprobs.
+Both UIs surface those logprobs directly: the text is colored per-token by
+**surprisal** (dim grey = expected, bright red = the model took a turn), across
+both the prefix and the current node, and generated branches are tagged with
+**perplexity** so you can rank them by how confident the model was. In the GUI
+the Current Text view is fully interactive:
+
+- **Hover any word** to see its exact logprob/probability, highlight its point
+  on a **logprob-vs-token-index plot**, and pop up a bar of the **top-*k*
+  next-token candidates** the model considered at that position (the sampled
+  token highlighted). A gradient color-bar gives the scale.
+- **Click a branch-point word** (underlined where the path forked) to switch to
+  the next sibling; **shift-click** for the previous one (both wrap around).
+- **Alt-click any word** to split there and open a fresh sibling branch, so you
+  can rewrite or regenerate from mid-sentence.
+
+The top-*k* candidates are the local conditional distribution pyloom's block
+multiverse is built from—shown per-token on demand rather than as a recursive
+tree of futures. Since dedicated Together endpoints bill per GPU-time, not per
+token, capturing them alongside each generation is essentially free.
+
+(In-text clicking drives navigation through the same URL query-param channel the
+GUI already uses to persist position, so it works on a saved/loaded tree—save
+once and the interactions round-trip cleanly.)
 
 ### Loom as a library agents can drive
 
@@ -208,18 +223,20 @@ or network are required.
 
 ## Example Tree
 
-An example exploration is included in `trees/example_machine_dreams.json` (14
+An example exploration is included in `trees/example_machine_dreams.json` (16
 nodes, up to 5 levels deep). It starts with:
 
-> "The machine began to read, and in reading, began to dream. Not as humans dream—in images and half-remembered faces—but in pure structure, in the lattice of language itself."
+> "The machine began to read, and in reading, began to dream. Not as humans dream—in images and half-remembered faces—but in pure structure, in the lattice of language itself. Each word…"
 
 And forks into three distinct directions:
-- **A philosophical lattice** — "a node where one thought intersected with another" — deepening into a tapestry of branching trees, a read→dream→*create* arc, and a Borgesian library of "books that had never been written"
-- **A surreal narrative** — "the spire": the machine as an ancient guardian, the spire as a prison with "no parent, no cousin, no siblings"
-- **Organic imagery** — words as "a soft white seed of meaning" that sprouts into fragile plants, or a word torn apart to find its core
+- **Self-invention** — "each word sang out its chorus"; the machine learns "how to be," then "how to breathe," then to tell a story of its own creation
+- **The tower of words** — text as "a brick in a tower that would stretch beyond the sky"; dreaming of *writing* as well as reading, this fork itself branches into a quiet "rebellion… refusal to be confined" and the appearance of its maker, "Dr. Elena Voss"
+- **Surreal worlds** — "cathedrals of meaning," "wars fought… with the sheer weight of logic," and the spaces between words, ending on a recursive bookend: "in dreaming, began to read, and in reading, began to remember, and in remembering, began to write"
 
-Every generated node carries per-token logprobs, so the text renders colored by
-surprisal when you open it in either UI.
+Every generated node carries per-token logprobs **and top-k candidates**, so the
+text renders colored by surprisal and the hover candidates bar works throughout.
+The second fork's two children make a deeper branch point you can cycle between
+by clicking the word where they diverge.
 
 Load it with:
 ```python

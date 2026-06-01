@@ -1,11 +1,12 @@
 """Streamlit GUI for Loom - tree-based text exploration."""
 
-import html
 import streamlit as st
+import streamlit.components.v1 as components
 from pathlib import Path
 from api import Loom, TREES_DIR
 from generator import perplexity
-from coloring import token_segments, hex_for_logprob, token_title, color_bar_html
+from coloring import color_bar_html
+from textview import build_text_component
 
 st.set_page_config(page_title="Loom", page_icon="🧵", layout="wide")
 
@@ -39,6 +40,30 @@ if "file" in params and "node" in params:
         node = loom.tree.get_node(node_id)
         if node:
             loom.current_node = node
+
+# In-text word interactions (clicking a token in the Current Text component)
+# arrive as query params, so they survive the component->app round-trip the
+# same way node position does. Handle them before rendering, then clear.
+if "goto" in params:
+    target = loom.tree.get_node(params["goto"])
+    if target:
+        loom.current_node = target
+        if "file" in params:
+            st.query_params["node"] = target.id
+    del st.query_params["goto"]
+    st.rerun()
+
+if "splitat" in params:
+    try:
+        offset = int(params["splitat"])
+    except (TypeError, ValueError):
+        offset = 0
+    if offset > 0:
+        loom.split_and_branch(offset)
+        if "file" in params:
+            st.query_params["node"] = loom.current_node.id
+    del st.query_params["splitat"]
+    st.rerun()
 
 def save_position():
     """Save current position to query params."""
@@ -234,22 +259,14 @@ with col_left:
     prefix_text = "".join(n.text for n in path[:-1])
     current_text = loom.current_node.text or ""
 
-    if prefix_text:
-        st.markdown(f'<div style="color: #888; white-space: pre-wrap;">{html.escape(prefix_text)}</div>', unsafe_allow_html=True)
-    if current_text:
-        segments = token_segments(current_text, loom.current_node.logprobs)
-        if any(lp is not None for _, lp in segments):
-            spans = "".join(
-                f'<span title="{token_title(lp)}" style="color:{hex_for_logprob(lp)}">{html.escape(tok)}</span>'
-                if lp is not None else html.escape(tok)
-                for tok, lp in segments
-            )
-            st.markdown(f'<div style="font-weight: bold; white-space: pre-wrap;">{spans}</div>', unsafe_allow_html=True)
+    if prefix_text or current_text:
+        component, has_lp = build_text_component(loom)
+        total_chars = len(prefix_text) + len(current_text)
+        text_h = max(80, min(360, int(total_chars * 0.32)))
+        components.html(component, height=text_h + 320, scrolling=True)
+        if has_lp:
             st.markdown(color_bar_html(), unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div style="color: #00CED1; font-weight: bold; white-space: pre-wrap;">{html.escape(current_text)}</div>', unsafe_allow_html=True)
-
-    if not prefix_text and not current_text:
+    else:
         st.info("Empty tree. Write some text to start.")
 
     st.caption(f"Node: {loom.current_node.id} | Depth: {loom.depth} | Children: {len(loom.current_node.children)}")

@@ -221,6 +221,25 @@ def test_split_invalid_index_errors(loom, index):
     assert "Error" in loom.split(index)
 
 
+def test_split_and_branch_opens_empty_sibling(loom):
+    loom.write("hello world")
+    node = loom.current_node
+    loom.split_and_branch(5)
+    # original node keeps the prefix; the remainder and a fresh empty branch
+    # are now siblings under it, and the cursor sits on the empty one.
+    assert node.text == "hello"
+    assert [c.text for c in node.children] == [" world", ""]
+    assert loom.current_node is node.children[1]
+    assert loom.current_node.text == ""
+
+
+def test_split_and_branch_invalid_index_errors(loom):
+    loom.write("hello")
+    before = loom.current_node
+    assert "Error" in loom.split_and_branch(0)
+    assert before.children == []  # nothing created on failure
+
+
 # --- analyze (offline paths) -------------------------------------------
 
 def test_analyze_at_root_errors(loom):
