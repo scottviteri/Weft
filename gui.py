@@ -41,32 +41,52 @@ if "file" in params and "node" in params:
         if node:
             loom.current_node = node
 
-# In-text word interactions (clicking a token in the Current Text component)
-# arrive as query params, so they survive the component->app round-trip the
-# same way node position does. The restore block above already pointed
-# current_node at the clicked node; we mutate from there and then render with
-# the resulting live node directly. We deliberately do NOT st.rerun() here:
-# split_and_branch creates a brand-new node that isn't in the saved file, so a
-# rerun's restore pass couldn't refind it by id and would snap back to the old
-# node. Updating current_node in place and falling through avoids that.
-if "goto" in params:
-    target = loom.tree.get_node(params["goto"])
-    if target:
-        loom.current_node = target
-    del st.query_params["goto"]
+def _apply_action(action, arg):
+    """Apply an in-text word action (cycle to a sibling, or split here)."""
+    if action == "goto":
+        target = loom.tree.get_node(arg)
+        if target:
+            loom.current_node = target
+    elif action in ("split", "splitat"):
+        try:
+            offset = int(arg)
+        except (TypeError, ValueError):
+            offset = 0
+        if offset > 0:
+            loom.split_and_branch(offset)
     if "file" in params:
         st.query_params["node"] = loom.current_node.id
 
+# Preferred channel: a hidden text_input the Current Text component writes to.
+# Committing it reruns over the WebSocket (no full page reload). Each command
+# carries a counter so repeats register. Falls back to query params (below) when
+# the component can't reach the input.
+st.markdown(
+    '<style>[data-testid="stTextInput"]:has(input[aria-label="weft_cmd"])'
+    '{position:absolute;width:1px;height:0;overflow:hidden;opacity:0;pointer-events:none;}</style>',
+    unsafe_allow_html=True,
+)
+_cmd = st.text_input("weft_cmd", value="", key="weft_cmd", label_visibility="collapsed")
+if _cmd and _cmd != st.session_state.get("weft_cmd_done"):
+    st.session_state.weft_cmd_done = _cmd
+    _parts = _cmd.split(":")
+    if len(_parts) >= 2:
+        _apply_action(_parts[0], _parts[1])
+
+# In-text word interactions also arrive as query params (the full-reload
+# fallback), so they survive the component->app round-trip the same way node
+# position does. The restore block above already pointed current_node at the
+# clicked node; we mutate from there and then render with the resulting live
+# node directly. We deliberately do NOT st.rerun() here: split_and_branch
+# creates a brand-new node that isn't in the saved file, so a rerun's restore
+# pass couldn't refind it by id and would snap back to the old node.
+if "goto" in params:
+    _apply_action("goto", params["goto"])
+    del st.query_params["goto"]
+
 if "splitat" in params:
-    try:
-        offset = int(params["splitat"])
-    except (TypeError, ValueError):
-        offset = 0
-    if offset > 0:
-        loom.split_and_branch(offset)
+    _apply_action("splitat", params["splitat"])
     del st.query_params["splitat"]
-    if "file" in params:
-        st.query_params["node"] = loom.current_node.id
 
 def save_position():
     """Save current position to query params."""

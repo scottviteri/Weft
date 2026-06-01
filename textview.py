@@ -25,8 +25,9 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  .text{white-space:pre-wrap;line-height:1.75;font-size:1.02rem;}
  .text span{border-radius:2px;}
  .cur{font-weight:bold;}
- .branch{text-decoration:underline dotted;text-underline-offset:3px;text-decoration-thickness:2px;cursor:pointer;}
- .branch:hover{background:rgba(80,160,255,.28);}
+ .fork{display:inline-block;width:0;border-left:3px solid #6aa3ff;height:1.05em;
+   vertical-align:-0.2em;margin:0 1px;padding:0 1px;cursor:pointer;border-radius:1px;}
+ .fork:hover{border-left-color:#ffd23c;box-shadow:0 0 0 2px rgba(255,210,60,.35);}
  .hl{background:rgba(255,221,0,.45);}
  .altbar{min-height:104px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(136,136,136,.25);}
  .alttitle{font-size:.7rem;color:#888;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;}
@@ -43,10 +44,11 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  <div class="text">__TEXT__</div>
  <div class="altbar" id="altbar"><div class="alttitle">hover a word for its next-token candidates</div></div>
  <div class="plot">__SVG__</div>
- <div class="hint">underlined = branch point · click cycles siblings, shift-click reverses, alt-click splits a new branch here</div>
+ <div class="hint">blue bar = branch point (between the shared and diverging token) · click cycles siblings, shift-click reverses · alt-click a word to split a new branch there</div>
  <script>
  var ALTS=__ALTS__;
  var APP=__APP__;
+ var CNT=0;
  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
  function disp(s){return s.replace(/\\n/g,'\\u23ce').replace(/ /g,'\\u00b7')||'\\u2205';}
  function setPlot(i,on){var p=document.getElementById('p'+i);if(p){p.setAttribute('r',on?6:3);p.style.strokeWidth=on?2:0;}}
@@ -64,12 +66,32 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  }
  function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);}
  function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);}
- function nav(param,value){
-   // Streamlit's component iframe is sandboxed with allow-same-origin but
-   // WITHOUT allow-top-navigation, so we can READ the parent URL but not set
-   // its location from here. The escape: build the target URL, then create an
-   // <a> in the PARENT document and click it — the navigation's source context
-   // is the (un-sandboxed) parent, which is allowed to navigate itself.
+ // Preferred channel: write the action into a hidden Streamlit text_input in
+ // the parent (allow-same-origin lets us reach it) and commit it, which reruns
+ // the app over the existing WebSocket — no full page reload. A counter keeps
+ // each command unique so repeats still register.
+ function sendCmd(kind,value){
+   try{
+     var pdoc=window.parent.document;
+     var input=pdoc.querySelector('input[aria-label="weft_cmd"]');
+     if(input){
+       CNT++;
+       var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
+       setter.call(input,kind+':'+value+':'+CNT);
+       input.dispatchEvent(new window.parent.Event('input',{bubbles:true}));
+       input.dispatchEvent(new window.parent.KeyboardEvent('keydown',{key:'Enter',keyCode:13,which:13,bubbles:true}));
+       // Self-heal: a successful commit reruns the app and reloads this iframe,
+       // destroying the timer. If nothing reran (commit didn't take), fall back
+       // to the full-reload navigation after a short grace period.
+       setTimeout(function(){navFallback(kind==='split'?'splitat':'goto', value);}, 700);
+       return;
+     }
+   }catch(e){}
+   navFallback(kind==='split'?'splitat':'goto', value);  // full-reload fallback
+ }
+ // Fallback: the iframe sandbox lacks allow-top-navigation, so we navigate by
+ // injecting a <script> into the (un-sandboxed) parent that sets its location.
+ function navFallback(param,value){
    var href;
    try{href=window.parent.location.href;}catch(e){href=document.referrer;}
    var u;
@@ -78,26 +100,21 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
    u.searchParams.delete('goto');u.searchParams.delete('splitat');
    u.searchParams.set(param,value);
    var url=u.toString();
-   // Primary: inject a <script> into the parent and let IT navigate, so the
-   // navigation is initiated by the parent's (un-sandboxed) context rather than
-   // this iframe (whose sandbox lacks allow-top-navigation).
    try{
      var pdoc=window.parent.document;
      var s=pdoc.createElement('script');
      s.textContent='location.href='+JSON.stringify(url);
-     pdoc.head.appendChild(s);pdoc.head.removeChild(s);
-     return;
+     pdoc.head.appendChild(s);pdoc.head.removeChild(s);return;
    }catch(e){}
-   // Fallback: an <a> created and clicked in the parent document.
    try{
      var pd=window.parent.document;
      var a=pd.createElement('a');a.href=url;a.target='_self';a.style.display='none';
-     pd.body.appendChild(a);a.click();pd.body.removeChild(a);
-     return;
+     pd.body.appendChild(a);a.click();pd.body.removeChild(a);return;
    }catch(e){}
    try{window.top.location.href=url;}catch(e){}
  }
- document.querySelectorAll('.text span').forEach(function(s){
+ // Tokens: hover to highlight + show candidates; alt-click to split here.
+ document.querySelectorAll('.text span[data-i]').forEach(function(s){
    var i=s.dataset.i;
    s.addEventListener('mouseenter',function(){enter(i);});
    s.addEventListener('mouseleave',function(){leave(i);});
@@ -105,17 +122,19 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
      if(e.altKey && s.dataset.split!==undefined){
        e.preventDefault();
        var off=parseInt(s.dataset.split,10);
-       if(off>0){nav('splitat',off);}
-       return;
+       if(off>0){sendCmd('split',off);}
      }
-     if(s.classList.contains('branch')){
-       e.preventDefault();
-       var sibs=(s.dataset.sibs||'').split(',').filter(Boolean);
-       if(sibs.length<2){return;}
-       var pos=parseInt(s.dataset.pos||'0',10);
-       var next=(pos+(e.shiftKey?-1:1)+sibs.length)%sibs.length;
-       nav('goto',sibs[next]);
-     }
+   });
+ });
+ // Fork markers (between the shared and diverging token): click to cycle siblings.
+ document.querySelectorAll('.fork').forEach(function(f){
+   f.addEventListener('click',function(e){
+     e.preventDefault();
+     var sibs=(f.dataset.sibs||'').split(',').filter(Boolean);
+     if(sibs.length<2){return;}
+     var pos=parseInt(f.dataset.pos||'0',10);
+     var next=(pos+(e.shiftKey?-1:1)+sibs.length)%sibs.length;
+     sendCmd('goto',sibs[next]);
    });
  });
  document.querySelectorAll('.pt').forEach(function(p){
@@ -133,10 +152,10 @@ def build_text_component(loom, app_params=None):
     embedded so the in-iframe JS can rebuild the parent URL when a word click
     navigates (the sandbox blocks reading the parent location directly).
 
-    Colors every token by surprisal, marks branch points (a node's first token
-    when its parent has more than one child), attaches per-token next-token
-    candidates for the hover bar, and links current-node tokens to the plot via
-    a single global token index.
+    Colors every token by surprisal, inserts a clickable fork marker between the
+    shared token and the diverging token at each branch point, attaches per-token
+    next-token candidates for the hover bar, and links current-node tokens to the
+    plot via a single global token index.
     """
     path = loom.tree.get_path_to_node(loom.current_node.id)
     spans = []
@@ -196,10 +215,15 @@ def build_text_component(loom, app_params=None):
                 if items:
                     alts[gidx] = [[t, p, (t == tok)] for t, p in items]
 
+            # A fork marker sits BETWEEN the shared (parent) token and this
+            # node's first (diverging) token, rather than recoloring the token.
             if sibs is not None and k == 0:
-                classes.append("branch")
-                attrs += f' data-sibs="{",".join(sibs)}" data-pos="{pos}"'
-                title = f"branch point · {len(sibs)} options · click cycles siblings, shift-click reverses"
+                ftitle = (f"branch point · {len(sibs)} options · "
+                          f"click cycles siblings, shift-click reverses")
+                spans.append(
+                    f'<span class="fork" data-sibs="{",".join(sibs)}" '
+                    f'data-pos="{pos}" title="{html.escape(ftitle)}"></span>'
+                )
 
             cls = f' class="{" ".join(classes)}"' if classes else ""
             sty = f' style="{styles}"' if styles else ""

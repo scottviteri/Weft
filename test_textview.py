@@ -102,14 +102,15 @@ def test_no_branch_marker_for_only_child(loom):
 
 def test_plot_extends_through_recent_branch_point(loom):
     # seed -> three siblings; descend one, then continue. The plot should cover
-    # the fork region (a "fork" divider) plus tokens before the current node.
+    # the fork region (a dashed divider) plus tokens before the current node.
     loom.write("seed")
     loom.generate(n=3)
     loom.select_all()
     loom.child(2)            # onto a sibling (the branch point)
     loom.continue_branch()   # current node is now past the fork
     html, _ = _build(loom)
-    assert "fork" in html            # divider drawn at the branch point
+    assert "stroke-dasharray" in html       # fork divider drawn in the plot
+    assert '<span class="fork"' in html     # inline fork marker present
     # more plot circles than just the current node's single token
     assert html.count("<circle") >= 2
 
@@ -118,7 +119,8 @@ def test_plot_only_current_node_when_no_branch(loom):
     loom.write("seed")
     loom.continue_branch()   # linear path, no fork
     html, _ = _build(loom)
-    assert "fork" not in html
+    assert "stroke-dasharray" not in html    # no fork divider
+    assert '<span class="fork"' not in html  # no inline fork marker
 
 
 # --- candidates payload -------------------------------------------------
