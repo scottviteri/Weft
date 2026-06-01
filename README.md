@@ -1,6 +1,6 @@
 # Weft
 
-A minimal tree-based writing interface for exploring branching text with LLMs. Inspired by and derived from [socketteer/loom](https://github.com/socketteer/loom).
+Explore branching text continuations from base LLMs, with Claude meta-analysis to reveal how the model interprets your text. A tree-based writing interface inspired by [socketteer/loom](https://github.com/socketteer/loom).
 
 ![CLI with Claude Analysis](Images/cli.webp)
 *Terminal UI showing Claude's meta-analysis of a text continuation*
