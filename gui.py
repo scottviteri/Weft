@@ -56,24 +56,34 @@ def get_siblings():
     next_sib = siblings[idx + 1] if idx < len(siblings) - 1 else None
     return prev_sib, next_sib
 
-def render_tree_simple(node, depth=0, current_id=None):
-    """Render tree with simple > markers for depth."""
-    preview = node.text[:35].replace('\n', ' ') if node.text else "[empty]"
-    if node.text and len(node.text) > 35:
+def render_tree_text(node, depth=0, current_id=None):
+    """Render tree as plain text with > markers for depth."""
+    preview = node.text[:40].replace('\n', ' ') if node.text else "[empty]"
+    if node.text and len(node.text) > 40:
         preview += "..."
     is_current = node.id == current_id
 
     # Use > for each level of depth
-    depth_marker = ">" * depth if depth > 0 else ""
-    if is_current:
-        line = f"**{depth_marker} ▶ {preview}**"
-    else:
-        line = f"{depth_marker} ○ {preview}"
+    depth_marker = ">" * depth + " " if depth > 0 else ""
+    marker = "▶ " if is_current else ""
+    line = f"{depth_marker}{marker}{preview}"
 
-    lines = [(node.id, line, is_current)]
+    lines = [line]
     for child in node.children:
-        lines.extend(render_tree_simple(child, depth + 1, current_id))
+        lines.extend(render_tree_text(child, depth + 1, current_id))
     return lines
+
+
+def collect_node_ids(node, depth=0):
+    """Collect all node IDs with their depth and preview."""
+    preview = node.text[:30].replace('\n', ' ') if node.text else "[empty]"
+    if node.text and len(node.text) > 30:
+        preview += "..."
+    depth_marker = ">" * depth + " " if depth > 0 else ""
+    nodes = [(node.id, f"{depth_marker}{preview}")]
+    for child in node.children:
+        nodes.extend(collect_node_ids(child, depth + 1))
+    return nodes
 
 
 # Sidebar
@@ -183,16 +193,29 @@ with st.sidebar:
 
     # Tree view
     st.subheader("Tree Structure")
-    tree_nodes = render_tree_simple(loom.tree.root, current_id=loom.current_node.id)
-    for node_id, label, is_current in tree_nodes:
-        if st.button(label, key=f"tree_{node_id}", use_container_width=True):
-            if not is_current:
-                target_node = loom.tree.get_node(node_id)
-                if target_node:
-                    loom.current_node = target_node
-                    if "file" in params:
-                        st.query_params["node"] = node_id
-                    st.rerun()
+    tree_lines = render_tree_text(loom.tree.root, current_id=loom.current_node.id)
+    st.code("\n".join(tree_lines), language=None)
+
+    # Navigation dropdown
+    node_list = collect_node_ids(loom.tree.root)
+    node_ids = [nid for nid, _ in node_list]
+    node_labels = {nid: label for nid, label in node_list}
+
+    current_idx = node_ids.index(loom.current_node.id) if loom.current_node.id in node_ids else 0
+    selected = st.selectbox(
+        "Jump to node:",
+        node_ids,
+        index=current_idx,
+        format_func=lambda x: node_labels.get(x, x),
+        key="node_select"
+    )
+    if selected != loom.current_node.id:
+        target_node = loom.tree.get_node(selected)
+        if target_node:
+            loom.current_node = target_node
+            if "file" in params:
+                st.query_params["node"] = selected
+            st.rerun()
 
 # Main content
 col_left, col_right = st.columns([2, 1])
