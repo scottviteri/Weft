@@ -71,9 +71,11 @@ logprobs now saved alongside each node, you get the quantitative readout (branch
 Both UIs surface those logprobs directly: the current node's text is colored
 per-token by **surprisal** (dim grey = expected, bright red = the model took a
 turn), and generated branches are tagged with **perplexity** so you can rank
-them by how confident the model was. This is the path-local shadow of pyloom's
-block multiverse—it shows surprise along the branch you took, not (yet) the
-untaken branches, which would need top-*k* logprobs.
+them by how confident the model was. In the GUI you can hover any token for its
+exact logprob and probability, with a gradient color-bar legend for the scale.
+This is the path-local shadow of pyloom's block multiverse—it shows surprise
+along the branch you took, not (yet) the untaken branches, which would need
+top-*k* logprobs.
 
 ### Loom as a library agents can drive
 
@@ -95,7 +97,7 @@ You'll need API keys for:
 
 ### Setting Up a Together AI Endpoint
 
-Weft uses Together AI's serverless endpoints for text generation. By default, it's configured to use a Qwen3 base model endpoint. To set up your own:
+Weft generates text against a Together AI endpoint—typically a **dedicated** endpoint running a base model (base models generally aren't offered serverless). To set up your own:
 
 1. Go to [Together AI](https://together.ai/) and create an account
 2. Navigate to **Endpoints** in the dashboard
@@ -206,15 +208,18 @@ or network are required.
 
 ## Example Tree
 
-An example exploration is included in `trees/example_machine_dreams.json`. It starts with:
+An example exploration is included in `trees/example_machine_dreams.json` (14
+nodes, up to 5 levels deep). It starts with:
 
 > "The machine began to read, and in reading, began to dream. Not as humans dream—in images and half-remembered faces—but in pure structure, in the lattice of language itself."
 
-And branches into explorations of:
-- Machine consciousness and functionalism
-- Poetry as universe ("poems of maps and mirrors, poems of storm and sea")
-- Dialogues between machine and reader
-- Meta-commentary on what it means to "think"
+And forks into three distinct directions:
+- **A philosophical lattice** — "a node where one thought intersected with another" — deepening into a tapestry of branching trees, a read→dream→*create* arc, and a Borgesian library of "books that had never been written"
+- **A surreal narrative** — "the spire": the machine as an ancient guardian, the spire as a prison with "no parent, no cousin, no siblings"
+- **Organic imagery** — words as "a soft white seed of meaning" that sprouts into fragile plants, or a word torn apart to find its core
+
+Every generated node carries per-token logprobs, so the text renders colored by
+surprisal when you open it in either UI.
 
 Load it with:
 ```python
