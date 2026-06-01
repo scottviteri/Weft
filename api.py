@@ -218,6 +218,39 @@ class Loom:
         self.current_node = new_node
         return f"Split at {char_index} and opened new sibling branch {new_node.id}."
 
+    def score_node(self, node_id: str | None = None) -> str:
+        """Compute per-token logprobs for an existing node via an echo pass.
+
+        Conditions on the node's real prefix (the path from root), so the
+        coloring matches what the model would have assigned. Lets human-written
+        or imported text — including the root seed — be colored by surprisal.
+        """
+        node = self.tree.get_node(node_id) if node_id else self.current_node
+        if node is None:
+            return "Error: node not found."
+        if not node.text:
+            return "Nothing to score (empty node)."
+        path = self.tree.get_path_to_node(node.id)
+        prefix = "".join(n.text for n in path[:-1])
+        gen = self.generator.score(prefix, node.text)
+        if gen.logprobs is None:
+            return "Error: couldn't align scored tokens to the text."
+        node.logprobs = gen.logprobs
+        ppl = perplexity(gen.logprobs)
+        return f"Scored node {node.id}" + (f" (ppl {ppl:.1f})" if ppl is not None else "")
+
+    def score_tree(self) -> str:
+        """Score every node that has text but no logprobs yet."""
+        scored = 0
+        for node in list(self.tree._node_index.values()):
+            if node.text and not node.logprobs:
+                prefix = "".join(n.text for n in self.tree.get_path_to_node(node.id)[:-1])
+                gen = self.generator.score(prefix, node.text)
+                if gen.logprobs is not None:
+                    node.logprobs = gen.logprobs
+                    scored += 1
+        return f"Scored {scored} node(s)."
+
     def up(self) -> str:
         """Go to parent node."""
         if self.current_node.parent_id:

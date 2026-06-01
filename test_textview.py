@@ -35,6 +35,9 @@ class FakeGenerator:
         n = num_branches or self.config.num_branches
         return [Generation(f" branch{i}", logprobs=_lp(f" branch{i}")) for i in range(n)]
 
+    def score(self, prefix, text):
+        return Generation(text, logprobs=_lp(text))
+
 
 @pytest.fixture
 def loom(monkeypatch):

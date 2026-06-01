@@ -88,6 +88,13 @@ multiverse is built from—shown per-token on demand rather than as a recursive
 tree of futures. Since dedicated Together endpoints bill per GPU-time, not per
 token, capturing them alongside each generation is essentially free.
 
+Text that has no logprobs yet—the human-written seed, pasted text, the half you
+keep after a split—can be **scored** to color it too (the "Color / Score"
+expander in the GUI, `S` in the TUI, or `Loom.score_node()`/`score_tree()`).
+Scoring runs an `echo=True` pass that returns the model's per-token logprobs for
+the text itself, conditioned on its prefix; it gives surprisal coloring and
+perplexity but not the candidates bar (echo doesn't return top-*k*).
+
 (In-text clicking drives navigation through the same URL query-param channel the
 GUI already uses to persist position, so it works on a saved/loaded tree—save
 once and the interactions round-trip cleanly.)

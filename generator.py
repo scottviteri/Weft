@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 # Together dedicated endpoints get a fresh hash suffix each time they're
 # recreated, so the model is read from $WEFT_MODEL when set. Update this
 # fallback or export WEFT_MODEL to point at your current endpoint.
-DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-746edaf8"
+DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-018467e9"
 
 # How many candidate tokens to request per position. Dedicated endpoints bill
 # per GPU-time (not per token), so capturing the top-k alternatives alongside
@@ -132,3 +132,54 @@ class Generator:
             logprobs=TOP_K,
         )
         return _extract(response.choices[0])
+
+    def score(self, prefix: str, text: str) -> Generation:
+        """Score existing `text` (conditioned on `prefix`) without generating.
+
+        Uses an `echo=True`, `max_tokens=1` pass so the endpoint returns
+        per-token logprobs for the *prompt* itself, then slices off the prefix
+        tokens so the result aligns exactly with `text`. This colors
+        human-written or imported text the same way generated text is colored.
+        (echo returns only the sampled token's logprob, not top-k, so scored
+        text gets surprisal coloring and perplexity but no candidates bar.)
+
+        Returns a Generation whose logprobs cover `text`, or logprobs=None when
+        the tokenization can't be aligned to the prefix boundary.
+        """
+        response = self.client.completions.create(
+            model=self.config.model,
+            prompt=prefix + text,
+            max_tokens=1,
+            echo=True,
+            logprobs=1,
+        )
+        pr = getattr(response, "prompt", None)
+        if not pr:
+            return Generation(text=text, logprobs=None)
+        plp = pr[0].logprobs
+        tokens = list(getattr(plp, "tokens", None) or [])
+        tlps = list(getattr(plp, "token_logprobs", None) or [])
+        logprobs = _slice_to_text(tokens, tlps, prefix, text)
+        return Generation(text=text, logprobs=logprobs)
+
+
+def _slice_to_text(tokens, token_logprobs, prefix, text):
+    """Keep only the (token, logprob) entries that make up `text`.
+
+    The echo pass tokenizes prefix+text; we drop the leading tokens that spell
+    out the prefix so the logprobs line up with `text`. Returns None if the
+    prefix boundary doesn't fall on a token boundary (so callers can skip rather
+    than mis-color).
+    """
+    if len(tokens) != len(token_logprobs):
+        return None
+    acc = ""
+    k = 0
+    while k < len(tokens) and len(acc) < len(prefix):
+        acc += tokens[k]
+        k += 1
+    if acc == prefix and "".join(tokens[k:]) == text:
+        return {"tokens": tokens[k:], "token_logprobs": token_logprobs[k:]}
+    if "".join(tokens) == text:  # prefix empty (e.g. root)
+        return {"tokens": tokens, "token_logprobs": token_logprobs}
+    return None

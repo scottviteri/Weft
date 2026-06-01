@@ -370,6 +370,21 @@ with col_right:
         else:
             st.info("No text to split")
 
+    with st.expander("🎨 Color / Score"):
+        st.caption("Compute per-token logprobs for text that has none yet "
+                   "(e.g. the human-written seed) so it colors by surprisal.")
+        scol1, scol2 = st.columns(2)
+        with scol1:
+            if st.button("Score this node", use_container_width=True):
+                with st.spinner("Scoring..."):
+                    st.session_state.message = loom.score_node()
+                st.rerun()
+        with scol2:
+            if st.button("Score whole tree", use_container_width=True):
+                with st.spinner("Scoring tree..."):
+                    st.session_state.message = loom.score_tree()
+                st.rerun()
+
     with st.expander("🔍 Analyze"):
         if st.button("Analyze with Claude", use_container_width=True):
             with st.spinner("Analyzing..."):

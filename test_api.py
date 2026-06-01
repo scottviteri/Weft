@@ -33,6 +33,10 @@ class FakeGenerator:
         self.calls.append(("multi", prompt, n))
         return [Generation(f" branch{i}", logprobs=_lp(f" branch{i}")) for i in range(n)]
 
+    def score(self, prefix, text):
+        self.calls.append(("score", prefix, text))
+        return Generation(text, logprobs={"tokens": [text], "token_logprobs": [-0.7]})
+
 
 @pytest.fixture
 def loom(monkeypatch):
@@ -276,6 +280,39 @@ def test_split_and_branch_invalid_index_errors(loom):
     before = loom.current_node
     assert "Error" in loom.split_and_branch(0)
     assert before.children == []  # nothing created on failure
+
+
+# --- score (echo-based coloring of existing text) ----------------------
+
+def test_score_node_sets_logprobs(loom):
+    loom.write("hello")            # human-written, no logprobs
+    assert loom.current_node.logprobs is None
+    result = loom.score_node()
+    assert loom.current_node.logprobs is not None
+    assert "Scored" in result
+
+
+def test_score_node_empty_is_noop(loom):
+    assert "Nothing" in loom.score_node()  # empty root
+
+
+def test_score_node_conditions_on_prefix(loom):
+    loom.write("seed")
+    loom.write(" tail")            # child node
+    loom.score_node()
+    # the echo prefix passed to the generator is the path before this node
+    score_calls = [c for c in loom.generator.calls if c[0] == "score"]
+    assert score_calls[-1][1] == "seed"      # prefix
+    assert score_calls[-1][2] == " tail"     # text
+
+
+def test_score_tree_fills_unscored_nodes(loom):
+    loom.write("seed")
+    loom.continue_branch()         # generated child already has logprobs
+    generated = loom.current_node
+    result = loom.score_tree()
+    assert loom.tree.root.logprobs is not None       # root got scored
+    assert "Scored" in result
 
 
 # --- analyze (offline paths) -------------------------------------------

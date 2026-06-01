@@ -128,6 +128,7 @@ class LoomUI:
   [cyan]w[/cyan] / [cyan]write[/cyan]     - Write text manually
   [cyan]a[/cyan] / [cyan]analyze[/cyan]   - Analyze current node with Claude
   [cyan]k[/cyan] / [cyan]candidates[/cyan] - Show top-k next-token candidates per token
+  [cyan]S[/cyan] / [cyan]score[/cyan]     - Score current node's text (color by surprisal)
   [cyan]1-9[/cyan]           - Select a branch by number
   [cyan]u[/cyan] / [cyan]up[/cyan]        - Go back to parent node
   [cyan]n[/cyan] / [cyan]p[/cyan]         - Next / previous sibling (cycle a branch point)
@@ -294,6 +295,17 @@ class LoomUI:
         style = "yellow" if result.startswith("Error") else "green"
         self.console.print(f"[{style}]{result}[/{style}]")
 
+    def score_node(self):
+        """Compute per-token logprobs for the current node (echo pass)."""
+        self.console.print("[dim]Scoring current node...[/dim]")
+        try:
+            result = self.loom.score_node()
+        except Exception as e:
+            self.console.print(f"[red]Error scoring: {e}[/red]")
+            return
+        style = "yellow" if result.startswith(("Error", "Nothing")) else "green"
+        self.console.print(f"[{style}]{result}[/{style}]")
+
     def reload_modules(self):
         """Hot-reload the generator module and rebuild the generator."""
         import generator as generator_module
@@ -316,9 +328,18 @@ class LoomUI:
 
         while True:
             self.display_current_state()
-            cmd = Prompt.ask("\n[bold]Command[/bold]", default="h").strip().lower()
+            raw = Prompt.ask("\n[bold]Command[/bold]", default="h").strip()
+            cmd = raw.lower()
 
-            if cmd in ("q", "quit", "exit"):
+            if raw == "S" or cmd == "score":
+                self.score_node()
+                input("\nPress Enter to continue...")
+
+            elif raw == "R" or cmd == "reload":
+                self.reload_modules()
+                input("\nPress Enter to continue...")
+
+            elif cmd in ("q", "quit", "exit"):
                 if Prompt.ask("Save before quitting?", choices=["y", "n"], default="y") == "y":
                     self.save_tree()
                 break
@@ -374,10 +395,6 @@ class LoomUI:
 
             elif cmd in ("o", "options", "config"):
                 self.configure()
-                input("\nPress Enter to continue...")
-
-            elif cmd in ("R", "reload"):
-                self.reload_modules()
                 input("\nPress Enter to continue...")
 
             elif cmd.isdigit():
