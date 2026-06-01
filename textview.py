@@ -74,21 +74,37 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  // reruns over the existing WebSocket — no page reload. A counter keeps each
  // command unique so repeats still register. There is deliberately no reload
  // fallback: if the input can't be reached the click is simply a no-op.
+ // [weft] console logging is left in to make this debuggable from DevTools.
  function sendCmd(kind,value){
+   console.log('[weft] sendCmd', kind, value);
    try{
-     var pdoc=window.parent.document;
+     var pw=window.parent;
+     if(!pw||!pw.document){console.warn('[weft] parent document not accessible');return;}
+     var pdoc=pw.document;
      // Streamlit tags keyed widgets with an `st-key-<key>` class on their
      // container; that's a more reliable handle than the input's aria-label.
      var input=pdoc.querySelector('.st-key-weft_cmd input')||pdoc.querySelector('input[aria-label="weft_cmd"]');
-     if(!input){return;}
+     if(!input){
+       console.warn('[weft] weft_cmd input NOT found. Inputs in parent:');
+       pdoc.querySelectorAll('input').forEach(function(el,i){
+         var box=el.closest('[class*="st-key"]');
+         console.log('  ['+i+'] aria='+el.getAttribute('aria-label')+
+           ' type='+el.type+' container='+(box?box.className:'(none)'));
+       });
+       return;
+     }
      CNT++;
-     var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
-     setter.call(input,kind+':'+value+':'+CNT);
+     var val=kind+':'+value+':'+CNT;
+     var setter=Object.getOwnPropertyDescriptor(pw.HTMLInputElement.prototype,'value').set;
+     setter.call(input,val);
      // The native setter defeats React's value tracker, so dispatch input to
      // make React notice the change, then Enter to commit (Streamlit reruns).
-     input.dispatchEvent(new window.parent.Event('input',{bubbles:true}));
-     input.dispatchEvent(new window.parent.KeyboardEvent('keydown',{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
-   }catch(e){}
+     input.dispatchEvent(new pw.Event('input',{bubbles:true}));
+     ['keydown','keypress','keyup'].forEach(function(t){
+       input.dispatchEvent(new pw.KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
+     });
+     console.log('[weft] committed value=', val, '| input.value now=', input.value);
+   }catch(e){console.error('[weft] sendCmd error', e);}
  }
  // Tokens: hover to highlight + show candidates; alt-click to split here.
  document.querySelectorAll('.text span[data-i]').forEach(function(s){
@@ -104,10 +120,12 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
    });
  });
  // Fork markers (between the shared and diverging token): click to cycle siblings.
+ console.log('[weft] fork markers found:', document.querySelectorAll('.fork').length);
  document.querySelectorAll('.fork').forEach(function(f){
    f.addEventListener('click',function(e){
      e.preventDefault();
      var sibs=(f.dataset.sibs||'').split(',').filter(Boolean);
+     console.log('[weft] fork click; sibs=', sibs, 'pos=', f.dataset.pos, 'shift=', e.shiftKey);
      if(sibs.length<2){return;}
      var pos=parseInt(f.dataset.pos||'0',10);
      var next=(pos+(e.shiftKey?-1:1)+sibs.length)%sibs.length;

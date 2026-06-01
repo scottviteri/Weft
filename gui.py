@@ -69,6 +69,7 @@ st.markdown(
 _cmd = st.text_input("weft_cmd", key="weft_cmd", label_visibility="collapsed")
 if _cmd and _cmd != st.session_state.get("weft_cmd_done"):
     st.session_state.weft_cmd_done = _cmd
+    st.session_state.weft_cmd_count = st.session_state.get("weft_cmd_count", 0) + 1
     _parts = _cmd.split(":")
     if len(_parts) >= 2:
         _apply_action(_parts[0], _parts[1])
@@ -125,6 +126,14 @@ def collect_node_ids(node, depth=0):
 # Sidebar
 with st.sidebar:
     st.title("🧵 Loom")
+
+    # Debug readout for in-text clicks: shows the last command the app received
+    # from the component bridge and how many it has processed this session.
+    st.caption(
+        f"🐞 last cmd: `{st.session_state.get('weft_cmd_done') or '(none)'}` · "
+        f"received: {st.session_state.get('weft_cmd_count', 0)} · "
+        f"node: `{loom.current_node.id}`"
+    )
 
     # File operations
     st.subheader("Files")
