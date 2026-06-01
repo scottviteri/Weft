@@ -88,6 +88,9 @@ class GenerationConfig:
 streamlit run gui.py
 ```
 
+![Streamlit GUI](Images/gui.png)
+*Streamlit GUI with tree navigation, text display, and Claude analysis*
+
 ### Programmatic API
 
 ```python
