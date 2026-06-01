@@ -56,16 +56,16 @@ def get_siblings():
     next_sib = siblings[idx + 1] if idx < len(siblings) - 1 else None
     return prev_sib, next_sib
 
-def render_tree(node, indent=0, current_id=None):
-    """Render tree as indented text."""
-    marker = ">>> " if node.id == current_id else ""
-    preview = node.text[:50].replace('\n', ' ') if node.text else "[empty]"
-    if node.text and len(node.text) > 50:
+def collect_tree_nodes(node, indent=0, current_id=None):
+    """Collect tree nodes as a flat list for rendering."""
+    preview = node.text[:40].replace('\n', ' ') if node.text else "[empty]"
+    if node.text and len(node.text) > 40:
         preview += "..."
-    lines = ["  " * indent + f"{marker}[{node.id[:8]}] {preview}"]
+    is_current = node.id == current_id
+    nodes = [(node.id, indent, preview, is_current)]
     for child in node.children:
-        lines.extend(render_tree(child, indent + 1, current_id))
-    return lines
+        nodes.extend(collect_tree_nodes(child, indent + 1, current_id))
+    return nodes
 
 
 # Sidebar
@@ -175,8 +175,19 @@ with st.sidebar:
 
     # Tree view
     st.subheader("Tree Structure")
-    tree_lines = render_tree(loom.tree.root, current_id=loom.current_node.id)
-    st.code("\n".join(tree_lines), language=None)
+    tree_nodes = collect_tree_nodes(loom.tree.root, current_id=loom.current_node.id)
+    for node_id, indent, preview, is_current in tree_nodes:
+        indent_str = "　" * indent  # Use em-space for indentation
+        marker = "▶ " if is_current else "  "
+        label = f"{indent_str}{marker}{preview}"
+        if st.button(label, key=f"tree_{node_id}", use_container_width=True,
+                     type="primary" if is_current else "secondary"):
+            target_node = loom.tree.get_node(node_id)
+            if target_node:
+                loom.current_node = target_node
+                if "file" in params:
+                    st.query_params["node"] = node_id
+                st.rerun()
 
 # Main content
 col_left, col_right = st.columns([2, 1])
