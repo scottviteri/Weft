@@ -95,7 +95,8 @@ def alt_bar_items(top_at_pos: dict | None, limit: int | None = None):
 
 
 def logprob_plot_svg(points, width: int = 340, height: int = 170,
-                     max_surprisal: float = DEFAULT_MAX_SURPRISAL) -> str:
+                     max_surprisal: float = DEFAULT_MAX_SURPRISAL,
+                     mark_idx: int | None = None) -> str:
     """An SVG line plot of token logprob vs. token index.
 
     `points` is an iterable of (id_index, logprob) pairs in reading order;
@@ -104,7 +105,8 @@ def logprob_plot_svg(points, width: int = 340, height: int = 170,
     colored by the same ramp as the text and carries ``id=f"p{id_index}"`` /
     ``data-idx`` so the matching token span can cross-highlight it. The
     id_index need not be contiguous (the spans use a single global index across
-    prefix + current text). Returns "" when no point carries a logprob.
+    prefix + current text). When ``mark_idx`` matches a plotted point, a dashed
+    "fork" divider is drawn there. Returns "" when no point carries a logprob.
     """
     pts = [(idx, lp) for idx, lp in points if lp is not None]
     if not pts:
@@ -128,6 +130,15 @@ def logprob_plot_svg(points, width: int = 340, height: int = 170,
         f'stroke-width="0"><title>{_html.escape(token_title(lp))}</title></circle>'
         for px, py, idx, lp in coords
     )
+    mark = ""
+    if mark_idx is not None:
+        mx = next((px for px, _, idx, _ in coords if idx == mark_idx), None)
+        if mx is not None:
+            mark = (
+                f'<line x1="{mx:.1f}" y1="{top}" x2="{mx:.1f}" y2="{top + ph}" '
+                f'stroke="#6aa3ff" stroke-width="1" stroke-dasharray="3,2" opacity="0.85"/>'
+                f'<text x="{mx:.1f}" y="{top - 2}" font-size="8" fill="#6aa3ff" text-anchor="middle">fork</text>'
+            )
     axis = (
         f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + ph}" stroke="#bbb"/>'
         f'<line x1="{left}" y1="{top + ph}" x2="{left + pw}" y2="{top + ph}" stroke="#bbb"/>'
@@ -139,6 +150,7 @@ def logprob_plot_svg(points, width: int = 340, height: int = 170,
         f'<svg viewBox="0 0 {width} {height}" width="100%" '
         f'style="max-width:{width}px; height:auto; overflow:visible;">'
         f'{axis}'
+        f'{mark}'
         f'<polyline points="{poly}" fill="none" stroke="#888" stroke-width="1" opacity="0.5"/>'
         f'{circles}</svg>'
     )

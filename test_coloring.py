@@ -109,6 +109,17 @@ def test_logprob_plot_svg_empty_without_logprobs():
     assert logprob_plot_svg([(0, None)]) == ""
 
 
+def test_logprob_plot_svg_marks_the_fork():
+    svg = logprob_plot_svg([(5, -0.1), (6, -2.0), (7, -1.0)], mark_idx=6)
+    assert "fork" in svg
+    assert "stroke-dasharray" in svg
+
+
+def test_logprob_plot_svg_no_mark_when_idx_absent():
+    svg = logprob_plot_svg([(5, -0.1), (6, -2.0)], mark_idx=99)
+    assert "fork" not in svg
+
+
 # --- metrics ------------------------------------------------------------
 
 def test_mean_logprob_and_perplexity():

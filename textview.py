@@ -65,16 +65,37 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);}
  function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);}
  function nav(param,value){
-   // The component runs in a sandboxed srcdoc iframe, so window.parent.location
-   // is unreadable (opaque origin). Rebuild the app URL from document.referrer
-   // (the parent page, which IS readable) plus the current query params handed
-   // in from Python, then navigate the top frame.
+   // Streamlit's component iframe is sandboxed with allow-same-origin but
+   // WITHOUT allow-top-navigation, so we can READ the parent URL but not set
+   // its location from here. The escape: build the target URL, then create an
+   // <a> in the PARENT document and click it — the navigation's source context
+   // is the (un-sandboxed) parent, which is allowed to navigate itself.
+   var href;
+   try{href=window.parent.location.href;}catch(e){href=document.referrer;}
    var u;
-   try{u=new URL(document.referrer);}catch(e){return;}
+   try{u=new URL(href);}catch(e){return;}
    Object.keys(APP).forEach(function(k){u.searchParams.set(k,APP[k]);});
    u.searchParams.delete('goto');u.searchParams.delete('splitat');
    u.searchParams.set(param,value);
-   window.top.location.href=u.toString();
+   var url=u.toString();
+   // Primary: inject a <script> into the parent and let IT navigate, so the
+   // navigation is initiated by the parent's (un-sandboxed) context rather than
+   // this iframe (whose sandbox lacks allow-top-navigation).
+   try{
+     var pdoc=window.parent.document;
+     var s=pdoc.createElement('script');
+     s.textContent='location.href='+JSON.stringify(url);
+     pdoc.head.appendChild(s);pdoc.head.removeChild(s);
+     return;
+   }catch(e){}
+   // Fallback: an <a> created and clicked in the parent document.
+   try{
+     var pd=window.parent.document;
+     var a=pd.createElement('a');a.href=url;a.target='_self';a.style.display='none';
+     pd.body.appendChild(a);a.click();pd.body.removeChild(a);
+     return;
+   }catch(e){}
+   try{window.top.location.href=url;}catch(e){}
  }
  document.querySelectorAll('.text span').forEach(function(s){
    var i=s.dataset.i;
@@ -120,12 +141,27 @@ def build_text_component(loom, app_params=None):
     path = loom.tree.get_path_to_node(loom.current_node.id)
     spans = []
     alts = {}            # global token index -> [[token, prob, is_chosen], ...]
-    plot_points = []     # (global index, logprob) for current-node tokens
+    plot_points = []     # (global index, logprob) for the plot window
     gidx = 0
     any_lp = False
 
-    for node in path:
+    # The plot covers from just before the most recent branch point (the deepest
+    # fork on the path) through the current node, so you can see the logprob
+    # trajectory leading into and out of the fork rather than only this node.
+    branch_js = [j for j, n in enumerate(path) if len(loom.siblings(n.id)) > 1]
+    if branch_js:
+        plot_start_j = max(0, max(branch_js) - 1)
+        branch_node = path[max(branch_js)]
+    else:
+        plot_start_j = len(path) - 1
+        branch_node = None
+    mark_idx = None
+
+    for j, node in enumerate(path):
         is_current = node is loom.current_node
+        in_plot = j >= plot_start_j
+        if branch_node is not None and node is branch_node:
+            mark_idx = gidx  # global index of the fork's first token
         segs = token_segments(node.text, node.logprobs)
         top = (node.logprobs or {}).get("top_logprobs")
         aligned_top = top if (top and len(top) == len(segs)) else None
@@ -148,7 +184,7 @@ def build_text_component(loom, app_params=None):
                 any_lp = True
                 styles = f"color:{hex_for_logprob(lp)}"
                 title = token_title(lp)
-                if is_current:
+                if in_plot:
                     plot_points.append((gidx, lp))
 
             if is_current:
@@ -174,7 +210,7 @@ def build_text_component(loom, app_params=None):
 
     component = (_TEMPLATE
                  .replace("__TEXT__", "".join(spans))
-                 .replace("__SVG__", logprob_plot_svg(plot_points))
+                 .replace("__SVG__", logprob_plot_svg(plot_points, mark_idx=mark_idx))
                  .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/"))
                  .replace("__APP__", json.dumps(app_params or {})))
     return component, any_lp
