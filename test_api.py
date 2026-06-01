@@ -107,6 +107,44 @@ def test_child_out_of_range(loom):
     assert "Invalid child" in loom.child(5)
 
 
+# --- siblings (shared by GUI branch points + TUI cycling) ---------------
+
+def test_siblings_empty_at_root(loom):
+    loom.write("seed")
+    assert loom.siblings() == []  # root has no parent
+
+
+def test_siblings_lists_all_children_of_parent(loom):
+    loom.write("seed")
+    loom.generate(n=3)
+    loom.select_all()
+    loom.child(1)
+    sibs = loom.siblings()
+    assert len(sibs) == 3
+    assert loom.current_node in sibs
+
+
+def test_select_sibling_cycles_with_wraparound(loom):
+    loom.write("seed")
+    loom.generate(n=3)
+    loom.select_all()
+    loom.child(1)                       # on first of three siblings
+    sibs = loom.siblings()
+    assert loom.current_node is sibs[0]
+    loom.select_sibling(1)
+    assert loom.current_node is sibs[1]
+    loom.select_sibling(-1)             # back to the first
+    assert loom.current_node is sibs[0]
+    loom.select_sibling(-1)             # wrap to the last
+    assert loom.current_node is sibs[-1]
+
+
+def test_select_sibling_noop_without_siblings(loom):
+    loom.write("seed")
+    loom.continue_branch()              # single child, no siblings
+    assert "No siblings" in loom.select_sibling(1)
+
+
 # --- generate / select --------------------------------------------------
 
 def test_continue_branch_advances(loom):

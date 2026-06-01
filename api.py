@@ -250,6 +250,31 @@ class Loom:
         self.current_node = self.current_node.children[idx]
         return f"Moved to child {n}, node {self.current_node.id}, depth {self.depth}"
 
+    def siblings(self, node_id: str | None = None) -> list[Node]:
+        """The children of a node's parent, in order (the node + its siblings).
+
+        Empty for the root. Shared by both UIs so sibling logic lives in one
+        place; the GUI marks branch points with it and the TUI cycles with it.
+        """
+        node = self.tree.get_node(node_id) if node_id else self.current_node
+        if not node or not node.parent_id:
+            return []
+        parent = self.tree.get_node(node.parent_id)
+        return list(parent.children) if parent else []
+
+    def select_sibling(self, offset: int = 1) -> str:
+        """Move to the sibling `offset` positions away, wrapping around.
+
+        offset=+1 is the next sibling (GUI click), -1 the previous (shift-click).
+        """
+        sibs = self.siblings()
+        if len(sibs) < 2:
+            return "No siblings to cycle at this node."
+        idx = next((i for i, c in enumerate(sibs) if c.id == self.current_node.id), 0)
+        target = (idx + offset) % len(sibs)
+        self.current_node = sibs[target]
+        return f"Moved to sibling {target + 1}/{len(sibs)}, node {self.current_node.id}"
+
     def analyze(self) -> str:
         """Analyze current node with Claude."""
         path = self.tree.get_path_to_node(self.current_node.id)

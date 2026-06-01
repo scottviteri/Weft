@@ -46,6 +46,7 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  <div class="hint">underlined = branch point · click cycles siblings, shift-click reverses, alt-click splits a new branch here</div>
  <script>
  var ALTS=__ALTS__;
+ var APP=__APP__;
  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
  function disp(s){return s.replace(/\\n/g,'\\u23ce').replace(/ /g,'\\u00b7')||'\\u2205';}
  function setPlot(i,on){var p=document.getElementById('p'+i);if(p){p.setAttribute('r',on?6:3);p.style.strokeWidth=on?2:0;}}
@@ -64,8 +65,16 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);}
  function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);}
  function nav(param,value){
-   try{var u=new URL(window.parent.location.href);u.searchParams.set(param,value);window.parent.location.href=u.toString();}
-   catch(err){var v=new URL(window.location.href);v.searchParams.set(param,value);window.location.href=v.toString();}
+   // The component runs in a sandboxed srcdoc iframe, so window.parent.location
+   // is unreadable (opaque origin). Rebuild the app URL from document.referrer
+   // (the parent page, which IS readable) plus the current query params handed
+   // in from Python, then navigate the top frame.
+   var u;
+   try{u=new URL(document.referrer);}catch(e){return;}
+   Object.keys(APP).forEach(function(k){u.searchParams.set(k,APP[k]);});
+   u.searchParams.delete('goto');u.searchParams.delete('splitat');
+   u.searchParams.set(param,value);
+   window.top.location.href=u.toString();
  }
  document.querySelectorAll('.text span').forEach(function(s){
    var i=s.dataset.i;
@@ -96,8 +105,12 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  </script></body></html>"""
 
 
-def build_text_component(loom):
+def build_text_component(loom, app_params=None):
     """Return (html, has_logprobs) for the path root..current_node.
+
+    `app_params` is the current Streamlit query-param dict (file/node); it is
+    embedded so the in-iframe JS can rebuild the parent URL when a word click
+    navigates (the sandbox blocks reading the parent location directly).
 
     Colors every token by surprisal, marks branch points (a node's first token
     when its parent has more than one child), attaches per-token next-token
@@ -119,11 +132,10 @@ def build_text_component(loom):
 
         sibs = None
         pos = 0
-        if node.parent_id:
-            parent = loom.tree.get_node(node.parent_id)
-            if parent and len(parent.children) > 1:
-                sibs = [c.id for c in parent.children]
-                pos = next((j for j, c in enumerate(parent.children) if c.id == node.id), 0)
+        sib_nodes = loom.siblings(node.id)
+        if len(sib_nodes) > 1:
+            sibs = [c.id for c in sib_nodes]
+            pos = next((j for j, c in enumerate(sib_nodes) if c.id == node.id), 0)
 
         char_off = 0
         for k, (tok, lp) in enumerate(segs):
@@ -163,5 +175,6 @@ def build_text_component(loom):
     component = (_TEMPLATE
                  .replace("__TEXT__", "".join(spans))
                  .replace("__SVG__", logprob_plot_svg(plot_points))
-                 .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/")))
+                 .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/"))
+                 .replace("__APP__", json.dumps(app_params or {})))
     return component, any_lp

@@ -17,7 +17,7 @@ from rich.tree import Tree as RichTree
 from tree import Node
 from generator import perplexity
 from api import Loom, analyze_continuation, model_label
-from coloring import token_segments, hex_for_logprob, LEGEND
+from coloring import token_segments, hex_for_logprob, alt_bar_items, LEGEND
 
 
 def _preview(text: str, n: int) -> str:
@@ -52,10 +52,18 @@ class LoomUI:
     def current_node(self):
         return self.loom.current_node
 
-    def _append_text(self, styled: Text, text: str, logprobs: dict | None, base_style: str):
-        """Append text to a Rich Text, coloring per-token by surprisal if possible."""
+    def _append_text(self, styled: Text, text: str, logprobs: dict | None,
+                     base_style: str, bold: bool = True):
+        """Append text to a Rich Text, coloring per-token by surprisal if possible.
+
+        Tokens with no logprob fall back to base_style (e.g. "dim" for the
+        human-written prefix); colored tokens use the surprisal ramp.
+        """
         for tok, lp in token_segments(text, logprobs):
-            style = base_style if lp is None else f"bold {hex_for_logprob(lp)}"
+            if lp is None:
+                style = base_style
+            else:
+                style = f"bold {hex_for_logprob(lp)}" if bold else hex_for_logprob(lp)
             styled.append(tok, style=style)
 
     def display_current_state(self):
@@ -71,7 +79,8 @@ class LoomUI:
 
             prefix_text = "".join(n.text for n in path[:-1])
             if prefix_text:
-                styled_text.append(prefix_text, style="dim")
+                for n in path[:-1]:
+                    self._append_text(styled_text, n.text, n.logprobs, "dim", bold=False)
             if current_node.text:
                 self._append_text(styled_text, current_node.text, current_node.logprobs, "bold cyan")
 
@@ -98,6 +107,12 @@ class LoomUI:
         # Show current node info
         self.console.print(f"\n[dim]Depth: {self.loom.depth} | Node: {self.current_node.id} | Children: {len(self.current_node.children)}[/dim]")
 
+        # Show siblings (this node is a branch point) so they can be cycled
+        sibs = self.loom.siblings()
+        if len(sibs) > 1:
+            idx = next((i for i, c in enumerate(sibs) if c.id == self.current_node.id), 0)
+            self.console.print(f"[dim]Branch point: sibling {idx + 1}/{len(sibs)} — [n]ext / [p]rev to cycle[/dim]")
+
         # Show children if any
         if self.current_node.children:
             self.console.print("\n[bold green]Branches:[/bold green]")
@@ -112,8 +127,11 @@ class LoomUI:
   [cyan]g[/cyan] / [cyan]generate[/cyan]  - Generate multiple branches to choose from
   [cyan]w[/cyan] / [cyan]write[/cyan]     - Write text manually
   [cyan]a[/cyan] / [cyan]analyze[/cyan]   - Analyze current node with Claude
+  [cyan]k[/cyan] / [cyan]candidates[/cyan] - Show top-k next-token candidates per token
   [cyan]1-9[/cyan]           - Select a branch by number
   [cyan]u[/cyan] / [cyan]up[/cyan]        - Go back to parent node
+  [cyan]n[/cyan] / [cyan]p[/cyan]         - Next / previous sibling (cycle a branch point)
+  [cyan]b[/cyan] / [cyan]branch[/cyan]    - Split current node here and open a new sibling
   [cyan]r[/cyan] / [cyan]root[/cyan]      - Go back to root
   [cyan]t[/cyan] / [cyan]tree[/cyan]      - Show full tree structure
   [cyan]s[/cyan] / [cyan]save[/cyan]      - Save tree to file
@@ -245,6 +263,37 @@ class LoomUI:
             border_style="yellow"
         ))
 
+    def show_candidates(self):
+        """Show the top-k next-token candidates the model considered per token."""
+        node = self.current_node
+        segs = token_segments(node.text or "", node.logprobs)
+        top = (node.logprobs or {}).get("top_logprobs")
+        if not top or len(top) != len(segs):
+            self.console.print("[yellow]No top-k candidates stored for this node "
+                               "(generate with the current code to capture them).[/yellow]")
+            return
+        body = Text()
+        for (tok, lp), cand in zip(segs, top):
+            tok_style = hex_for_logprob(lp) if lp is not None else "dim"
+            body.append(f"{tok!r:>16}", style=f"bold {tok_style}")
+            body.append("  ")
+            items = alt_bar_items(cand, limit=5)
+            body.append("  ".join(f"{t!r}={p * 100:.0f}%" for t, p in items), style="dim")
+            body.append("\n")
+        self.console.print(Panel(body, title="[bold]Next-token candidates[/bold]", border_style="cyan"))
+
+    def branch_here(self):
+        """Split the current node at a character offset and open a new sibling."""
+        text = self.current_node.text
+        if not text:
+            self.console.print("[yellow]No text to split.[/yellow]")
+            return
+        self.console.print(f"[dim]Current text is {len(text)} chars.[/dim]")
+        idx = IntPrompt.ask("Split at character offset", default=len(text) // 2)
+        result = self.loom.split_and_branch(idx)
+        style = "yellow" if result.startswith("Error") else "green"
+        self.console.print(f"[{style}]{result}[/{style}]")
+
     def reload_modules(self):
         """Hot-reload the generator module and rebuild the generator."""
         import generator as generator_module
@@ -294,6 +343,23 @@ class LoomUI:
 
             elif cmd in ("u", "up", "back"):
                 self.loom.up()
+
+            elif cmd in ("n", "next"):
+                result = self.loom.select_sibling(1)
+                if result.startswith("No siblings"):
+                    self.console.print(f"[yellow]{result}[/yellow]")
+
+            elif cmd in ("p", "prev", "previous"):
+                result = self.loom.select_sibling(-1)
+                if result.startswith("No siblings"):
+                    self.console.print(f"[yellow]{result}[/yellow]")
+
+            elif cmd in ("b", "branch"):
+                self.branch_here()
+
+            elif cmd in ("k", "candidates", "cand"):
+                self.show_candidates()
+                input("\nPress Enter to continue...")
 
             elif cmd in ("r", "root"):
                 self.loom.root()

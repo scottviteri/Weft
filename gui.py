@@ -260,7 +260,9 @@ with col_left:
     current_text = loom.current_node.text or ""
 
     if prefix_text or current_text:
-        component, has_lp = build_text_component(loom)
+        app_params = {k: v for k, v in st.query_params.to_dict().items()
+                      if k not in ("goto", "splitat")}
+        component, has_lp = build_text_component(loom, app_params)
         total_chars = len(prefix_text) + len(current_text)
         text_h = max(80, min(360, int(total_chars * 0.32)))
         components.html(component, height=text_h + 320, scrolling=True)
