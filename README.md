@@ -20,6 +20,12 @@ Weft's novel contribution is using a second model (Claude) to analyze what the b
 
 This creates a fascinating window into how base models interpret ambiguous prompts—revealing implicit assumptions about narrative structure, genre conventions, and semantic relationships.
 
+**A caveat worth keeping explicit:** `analyze` reconstructs intent from the
+*sample*, not from the model's activations. It tells you what the continuation
+licenses an observer to infer—not what the base model represents internally. The
+analysis is a second model's reading of the text, not a probe of the first
+model's mechanism.
+
 ## Relationship to Loom
 
 This project is a simplified reimplementation of [Loom](https://github.com/socketteer/loom), the "multiversal tree writing interface for human-AI collaboration" created by [janus](https://generative.ink/posts/loom-interface-to-the-multiverse/).
@@ -40,10 +46,48 @@ This project is a simplified reimplementation of [Loom](https://github.com/socke
 | Meta-analysis | No | Claude integration for analyzing continuations |
 | Split/trim | No | Yes (for handling loops) |
 | Block multiverse | Yes | No |
-| Logprobs tracking | Yes | No |
+| Logprobs tracking | Yes | Yes (per-token, saved to each node) |
 | Complexity | Full-featured | Minimal |
 
-Weft is intentionally simpler—a minimal viable loom for quick exploration.
+Weft is intentionally simpler on the *selection* axis—a minimal viable loom for
+quick exploration. But it occupies an axis the rest of the family doesn't chart.
+
+### Two axes: selection vs. interpretation
+
+Most of the loom lineage evolves along a **selection** axis—automating the
+pruning of branches. Loom gave you logprobs and the block multiverse so you
+could see the distribution and prune by hand;
+[MiniHF/Weave](https://github.com/JD-P/minihf) takes that to its conclusion with
+MCTS against a finetunable reward model. On that axis Weft is deliberately
+minimal.
+
+Weft's `analyze` is on a different axis—**interpretation**. It doesn't *score*
+branches to prune them; it reads out what the base model committed to. No other
+loom has a meta-analysis layer, so "Weft = Loom minus features" undersells it:
+on the interpretation axis it's currently the only occupant. With per-token
+logprobs now saved alongside each node, you get the quantitative readout (branch
+*probabilities*) and the qualitative one (branch *meaning*) side by side.
+
+Both UIs surface those logprobs directly: the current node's text is colored
+per-token by **surprisal** (dim grey = expected, bright red = the model took a
+turn), and generated branches are tagged with **perplexity** so you can rank
+them by how confident the model was. This is the path-local shadow of pyloom's
+block multiverse—it shows surprise along the branch you took, not (yet) the
+untaken branches, which would need top-*k* logprobs.
+
+Logprobs are captured at generation time. For trees made before that (or to
+re-score after switching models), `loom.recompute_logprobs()` (also a GUI
+button) scores each node's existing text—but this needs an endpoint that
+supports `echo`; some dedicated endpoints don't, in which case it reports that
+no prompt logprobs were returned.
+
+### Loom as a library agents can drive
+
+A second axis is **substrate**. Most looms are human GUIs or notes-app plugins;
+Weft is built so an LLM agent—not just a human—can drive it (`api.py`: "usable
+by Claude or scripts"). [jmpaz/loom](https://github.com/jmpaz/loom) converged on
+the same library-plus-CLI quadrant independently in 2025, which is a real signal
+about where the form is heading.
 
 ## Installation
 
@@ -65,14 +109,17 @@ Weft uses Together AI's serverless endpoints for text generation. By default, it
 4. Configure autoscaling (min/max replicas) based on your needs
 5. Copy the endpoint name (e.g., `your-username/Qwen/Qwen3-30B-A3B-Base-abc123`)
 
-Then update the model in `generator.py`:
+Point Weft at it with the **`WEFT_MODEL`** environment variable (recommended—a
+dedicated endpoint gets a fresh hash suffix every time it's recreated, so you
+don't want it hardcoded):
 
-```python
-@dataclass
-class GenerationConfig:
-    model: str = "your-endpoint-name-here"
-    # ...
+```bash
+export WEFT_MODEL="your-username/Qwen/Qwen3-30B-A3B-Base-abc123"
 ```
+
+You can also set it per-run with `python loom.py --model …`, or in the GUI's
+**Model / endpoint** field. The built-in `DEFAULT_MODEL` in `generator.py` is
+only the fallback when `WEFT_MODEL` is unset.
 
 **Why base models?** Unlike instruction-tuned models, base models don't have a built-in "assistant" persona. They simply predict what text comes next, making them ideal for creative exploration where you want to see how the model interprets ambiguous prompts.
 
@@ -151,6 +198,17 @@ python loom.py
 | `o` | Options (temperature, etc.) |
 | `R` | Hot-reload code |
 | `q` | Quit |
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite is offline—the `Generator` (Together AI) is faked and the Claude
+`analyze` call is only exercised on its input-validation paths, so no API keys
+or network are required.
 
 ## Example Tree
 

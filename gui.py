@@ -1,8 +1,11 @@
 """Streamlit GUI for Loom - tree-based text exploration."""
 
+import html
 import streamlit as st
 from pathlib import Path
 from api import Loom, TREES_DIR
+from generator import perplexity
+from coloring import token_segments, hex_for_logprob, LEGEND
 
 st.set_page_config(page_title="Loom", page_icon="🧵", layout="wide")
 
@@ -185,11 +188,21 @@ with st.sidebar:
 
     # Settings
     st.subheader("Settings")
+    model = st.text_input("Model / endpoint", loom.generator.config.model,
+                          help="Together model or dedicated endpoint. Defaults to $WEFT_MODEL.")
+    loom.generator.config.model = model.strip()
+
     temp = st.slider("Temperature", 0.1, 2.0, loom.generator.config.temperature, 0.1)
     loom.generator.config.temperature = temp
 
     max_tokens = st.slider("Max tokens", 20, 300, loom.generator.config.max_tokens, 10)
     loom.generator.config.max_tokens = max_tokens
+
+    if st.button("Recompute logprobs", use_container_width=True,
+                 help="Score every node's text to (re)compute per-token logprobs for coloring"):
+        with st.spinner("Scoring nodes..."):
+            st.session_state.message = loom.recompute_logprobs()
+        st.rerun()
 
     # Tree view
     st.subheader("Tree Structure")
@@ -228,9 +241,19 @@ with col_left:
     current_text = loom.current_node.text or ""
 
     if prefix_text:
-        st.markdown(f'<div style="color: #888; white-space: pre-wrap;">{prefix_text}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color: #888; white-space: pre-wrap;">{html.escape(prefix_text)}</div>', unsafe_allow_html=True)
     if current_text:
-        st.markdown(f'<div style="color: #00CED1; font-weight: bold; white-space: pre-wrap;">{current_text}</div>', unsafe_allow_html=True)
+        segments = token_segments(current_text, loom.current_node.logprobs)
+        if any(lp is not None for _, lp in segments):
+            spans = "".join(
+                f'<span style="color:{hex_for_logprob(lp)}">{html.escape(tok)}</span>'
+                if lp is not None else html.escape(tok)
+                for tok, lp in segments
+            )
+            st.markdown(f'<div style="font-weight: bold; white-space: pre-wrap;">{spans}</div>', unsafe_allow_html=True)
+            st.caption(f"🎨 {LEGEND}")
+        else:
+            st.markdown(f'<div style="color: #00CED1; font-weight: bold; white-space: pre-wrap;">{html.escape(current_text)}</div>', unsafe_allow_html=True)
 
     if not prefix_text and not current_text:
         st.info("Empty tree. Write some text to start.")
@@ -273,11 +296,13 @@ with col_right:
 
         if st.session_state.last_branches:
             st.write("**Generated branches:**")
-            for i, text in enumerate(st.session_state.last_branches):
-                preview = text[:150].replace('\n', ' ')
-                if len(text) > 150:
+            for i, gen in enumerate(st.session_state.last_branches):
+                preview = gen.text[:150].replace('\n', ' ')
+                if len(gen.text) > 150:
                     preview += "..."
-                st.markdown(f"**[{i+1}]** {preview}")
+                ppl = perplexity(gen.logprobs)
+                tag = f" · ppl {ppl:.1f}" if ppl is not None else ""
+                st.markdown(f"**[{i+1}]{tag}** {preview}")
                 if st.button(f"Select {i+1}", key=f"select_{i}", use_container_width=True):
                     loom.select(i + 1)
                     st.session_state.last_branches = []

@@ -4,8 +4,8 @@
 import argparse
 from pathlib import Path
 
-from tree import Tree
-from generator import Generator, GenerationConfig
+from generator import GenerationConfig
+from api import Loom
 from ui import LoomUI
 
 
@@ -20,8 +20,8 @@ def main():
     )
     parser.add_argument(
         "--model", "-m",
-        default="sviteri/Qwen/Qwen3-30B-A3B-Base-3737eb6e",
-        help="Model/endpoint to use for generation"
+        default=None,
+        help="Model/endpoint for generation (default: $WEFT_MODEL or built-in fallback)"
     )
     parser.add_argument(
         "--max-tokens", "-t",
@@ -43,25 +43,18 @@ def main():
 
     args = parser.parse_args()
 
-    # Set up generator
     config = GenerationConfig(
-        model=args.model,
         max_tokens=args.max_tokens,
         temperature=args.temperature,
     )
-    generator = Generator(config)
+    if args.model:
+        config.model = args.model
 
-    # Set up tree
+    loom = Loom(config=config, load_path=args.load, prompt=args.prompt)
     if args.load and args.load.exists():
-        tree = Tree.load(args.load)
         print(f"Loaded tree from {args.load}")
-    elif args.prompt:
-        tree = Tree(root_text=args.prompt)
-    else:
-        tree = Tree()
 
-    # Run UI
-    ui = LoomUI(tree=tree, generator=generator)
+    ui = LoomUI(loom)
     ui.run()
 
 

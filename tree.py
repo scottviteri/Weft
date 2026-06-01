@@ -15,10 +15,11 @@ class Node:
     children: list["Node"] = field(default_factory=list)
     parent_id: Optional[str] = None
     analysis: Optional[str] = None  # Claude's analysis of this node
+    logprobs: Optional[dict] = None  # per-token logprobs of this node's text
 
-    def add_child(self, text: str) -> "Node":
+    def add_child(self, text: str, logprobs: Optional[dict] = None) -> "Node":
         """Add a child node with the given text."""
-        child = Node(text=text, parent_id=self.id)
+        child = Node(text=text, parent_id=self.id, logprobs=logprobs)
         self.children.append(child)
         return child
 
@@ -29,6 +30,7 @@ class Node:
             "text": self.text,
             "parent_id": self.parent_id,
             "analysis": self.analysis,
+            "logprobs": self.logprobs,
             "children": [c.to_dict() for c in self.children]
         }
 
@@ -39,7 +41,8 @@ class Node:
             text=data["text"],
             id=data["id"],
             parent_id=data.get("parent_id"),
-            analysis=data.get("analysis")
+            analysis=data.get("analysis"),
+            logprobs=data.get("logprobs")
         )
         node.children = [cls.from_dict(c) for c in data.get("children", [])]
         return node
@@ -63,12 +66,12 @@ class Tree:
         """Get a node by ID."""
         return self._node_index.get(node_id)
 
-    def add_branch(self, parent_id: str, text: str) -> Optional[Node]:
+    def add_branch(self, parent_id: str, text: str, logprobs: Optional[dict] = None) -> Optional[Node]:
         """Add a new branch to a node."""
         parent = self.get_node(parent_id)
         if parent is None:
             return None
-        child = parent.add_child(text)
+        child = parent.add_child(text, logprobs=logprobs)
         self._node_index[child.id] = child
         return child
 
@@ -82,7 +85,12 @@ class Tree:
         return list(reversed(path))
 
     def get_full_text(self, node_id: str) -> str:
-        """Get the concatenated text from root to a node."""
+        """Get the concatenated text from root to a node.
+
+        Joined with no separator, so each node's text must carry its own
+        leading whitespace. `Loom.split`/`trim` preserve this invariant by
+        keeping the cut text byte-for-byte.
+        """
         path = self.get_path_to_node(node_id)
         return "".join(n.text for n in path)
 
