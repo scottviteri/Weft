@@ -58,13 +58,35 @@ def perplexity(logprobs: dict | None) -> float | None:
     return math.exp(-m) if m is not None else None
 
 
-def _extract(choice) -> Generation:
+_LN2 = math.log(2)
+
+
+def total_surprisal_bits(logprobs: dict | None) -> float | None:
+    """Total surprisal of a generation in bits: -sum(logprob)/ln2.
+
+    This is the cumulative "how unlikely was this exact text" measure — the
+    number of bits the model needed to commit to every token along the way.
+    None entries (the first prompt token) are skipped. Returns None when no
+    token carries a logprob.
+    """
+    if not logprobs:
+        return None
+    lps = [x for x in (logprobs.get("token_logprobs") or []) if x is not None]
+    if not lps:
+        return None
+    return -sum(lps) / _LN2
+
+
+def _extract(choice, params: dict | None = None) -> Generation:
     """Build a Generation from a Together completion choice.
 
     Captures the sampled tokens and their logprobs, plus the top-k candidate
     tokens per position (`top_logprobs`) when the endpoint returns them. Each
     top_logprobs entry is a {token: logprob} dict; we normalize to plain dicts
-    so the whole structure round-trips through JSON unchanged.
+    so the whole structure round-trips through JSON unchanged. `params` (the
+    sampling settings this text was produced under) is stored alongside so the
+    UI can show what temperature a node was generated at — surprisal is only
+    comparable across nodes sampled at the same temperature.
     """
     lp = getattr(choice, "logprobs", None)
     logprobs = None
@@ -76,6 +98,8 @@ def _extract(choice) -> Generation:
             logprobs = {"tokens": tokens, "token_logprobs": token_logprobs}
             if top is not None:
                 logprobs["top_logprobs"] = [dict(d) if d is not None else None for d in top]
+    if logprobs is not None and params:
+        logprobs["params"] = params
     return Generation(text=choice.text, logprobs=logprobs)
 
 
@@ -111,7 +135,8 @@ class Generator:
             n=n,
             logprobs=TOP_K,
         )
-        return [_extract(c) for c in response.choices]
+        params = {"temperature": temp, "top_p": self.config.top_p, "model": self.config.model}
+        return [_extract(c, params) for c in response.choices]
 
     def generate_single(
         self,
@@ -131,7 +156,8 @@ class Generator:
             top_p=self.config.top_p,
             logprobs=TOP_K,
         )
-        return _extract(response.choices[0])
+        params = {"temperature": temp, "top_p": self.config.top_p, "model": self.config.model}
+        return _extract(response.choices[0], params)
 
     def score(self, prefix: str, text: str) -> Generation:
         """Score existing `text` (conditioned on `prefix`) without generating.
@@ -140,18 +166,24 @@ class Generator:
         per-token logprobs for the *prompt* itself, then slices off the prefix
         tokens so the result aligns exactly with `text`. This colors
         human-written or imported text the same way generated text is colored.
-        (echo returns only the sampled token's logprob, not top-k, so scored
-        text gets surprisal coloring and perplexity but no candidates bar.)
+        Requesting `logprobs=TOP_K` makes the echo pass also return the top-k
+        candidate tokens per prompt position, so scored (human-written) text gets
+        the same hover candidates bar as generated text — not just coloring.
 
         Returns a Generation whose logprobs cover `text`, or logprobs=None when
         the tokenization can't be aligned to the prefix boundary.
+
+        Scoring runs at temperature 1.0 so the logprobs are the model's true
+        distribution — a clean, comparable surprisal measurement, independent of
+        whatever temperature generated nodes were sampled at.
         """
         response = self.client.completions.create(
             model=self.config.model,
             prompt=prefix + text,
             max_tokens=1,
             echo=True,
-            logprobs=1,
+            logprobs=TOP_K,
+            temperature=1.0,
         )
         pr = getattr(response, "prompt", None)
         if not pr:
@@ -159,27 +191,40 @@ class Generator:
         plp = pr[0].logprobs
         tokens = list(getattr(plp, "tokens", None) or [])
         tlps = list(getattr(plp, "token_logprobs", None) or [])
-        logprobs = _slice_to_text(tokens, tlps, prefix, text)
+        top = getattr(plp, "top_logprobs", None)
+        top = [dict(d) if d is not None else None for d in top] if top is not None else None
+        logprobs = _slice_to_text(tokens, tlps, prefix, text, top_logprobs=top)
+        if logprobs is not None:
+            logprobs["params"] = {"temperature": 1.0, "model": self.config.model, "scored": True}
         return Generation(text=text, logprobs=logprobs)
 
 
-def _slice_to_text(tokens, token_logprobs, prefix, text):
+def _slice_to_text(tokens, token_logprobs, prefix, text, top_logprobs=None):
     """Keep only the (token, logprob) entries that make up `text`.
 
     The echo pass tokenizes prefix+text; we drop the leading tokens that spell
-    out the prefix so the logprobs line up with `text`. Returns None if the
-    prefix boundary doesn't fall on a token boundary (so callers can skip rather
+    out the prefix so the logprobs line up with `text`. `top_logprobs` (the
+    per-position candidate dicts, when requested) is sliced the same way so the
+    candidates bar lines up too. Returns None if the prefix boundary doesn't
+    fall on a token boundary (so callers can skip rather
     than mis-color).
     """
     if len(tokens) != len(token_logprobs):
         return None
+    have_top = top_logprobs is not None and len(top_logprobs) == len(tokens)
     acc = ""
     k = 0
     while k < len(tokens) and len(acc) < len(prefix):
         acc += tokens[k]
         k += 1
     if acc == prefix and "".join(tokens[k:]) == text:
-        return {"tokens": tokens[k:], "token_logprobs": token_logprobs[k:]}
+        out = {"tokens": tokens[k:], "token_logprobs": token_logprobs[k:]}
+        if have_top:
+            out["top_logprobs"] = top_logprobs[k:]
+        return out
     if "".join(tokens) == text:  # prefix empty (e.g. root)
-        return {"tokens": tokens, "token_logprobs": token_logprobs}
+        out = {"tokens": tokens, "token_logprobs": token_logprobs}
+        if have_top:
+            out["top_logprobs"] = top_logprobs
+        return out
     return None

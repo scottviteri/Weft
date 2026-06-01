@@ -44,9 +44,40 @@ def hex_for_logprob(logprob: float, max_surprisal: float = DEFAULT_MAX_SURPRISAL
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+_LN2 = math.log(2)
+
+
+def surprisal_bits(logprob: float) -> float:
+    """Surprisal of a single token in bits: -logprob/ln2."""
+    return -logprob / _LN2
+
+
 def token_title(logprob: float) -> str:
-    """Hover-tooltip text for a token: exact logprob and probability."""
-    return f"logprob {logprob:.2f} · p={math.exp(logprob):.1%}"
+    """Hover-tooltip text for a token: exact logprob, probability, surprisal."""
+    bits = surprisal_bits(logprob) + 0.0  # normalize -0.0 -> 0.0 for display
+    return f"logprob {logprob:.2f} · p={math.exp(logprob):.1%} · {bits:.1f} bits"
+
+
+def gen_params_label(logprobs: dict | None) -> str:
+    """Short human label for how a node's text was produced, or '' if unknown.
+
+    Reads the `params` recorded on the node's logprobs (temperature, and whether
+    it was echo-scored rather than sampled). Surfacing this makes clear that
+    surprisal is only comparable across nodes produced at the same temperature.
+    """
+    if not logprobs:
+        return ""
+    p = logprobs.get("params")
+    if not p:
+        return ""
+    if p.get("scored"):
+        return f"scored · T={p.get('temperature', 1.0):g}"
+    bits = []
+    if "temperature" in p:
+        bits.append(f"T={p['temperature']:g}")
+    if "top_p" in p:
+        bits.append(f"top_p={p['top_p']:g}")
+    return " · ".join(bits)
 
 
 def color_bar_html(width_px: int = 160) -> str:

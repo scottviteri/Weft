@@ -10,12 +10,14 @@ from coloring import (
     rgb_for_logprob,
     hex_for_logprob,
     token_title,
+    surprisal_bits,
+    gen_params_label,
     color_bar_html,
     alt_bar_items,
     logprob_plot_svg,
     DEFAULT_MAX_SURPRISAL,
 )
-from generator import mean_logprob, perplexity
+from generator import mean_logprob, perplexity, total_surprisal_bits
 
 
 # --- token_segments -----------------------------------------------------
@@ -59,8 +61,9 @@ def test_hex_format():
 
 
 def test_token_title_shows_logprob_and_probability():
-    assert token_title(0.0) == "logprob 0.00 · p=100.0%"
+    assert token_title(0.0) == "logprob 0.00 · p=100.0% · 0.0 bits"
     assert "logprob -2.00" in token_title(-2.0)
+    assert "2.9 bits" in token_title(-2.0)  # -(-2)/ln2 ≈ 2.885
 
 
 def test_color_bar_spans_the_ramp():
@@ -138,3 +141,40 @@ def test_mean_logprob_skips_none_entries():
     # The first prompt token has no context, so its logprob is None.
     lp = {"tokens": ["a", "b"], "token_logprobs": [None, -2.0]}
     assert mean_logprob(lp) == -2.0
+
+
+# --- surprisal in bits --------------------------------------------------
+
+def test_surprisal_bits_is_neg_logprob_over_ln2():
+    assert surprisal_bits(-math.log(2)) == pytest.approx(1.0)   # halving = 1 bit
+    assert surprisal_bits(0.0) == pytest.approx(0.0)
+
+
+def test_total_surprisal_bits_sums_and_skips_none():
+    lp = {"tokens": ["a", "b", "c"], "token_logprobs": [None, -math.log(2), -math.log(2)]}
+    assert total_surprisal_bits(lp) == pytest.approx(2.0)
+
+
+def test_total_surprisal_bits_none_when_missing():
+    assert total_surprisal_bits(None) is None
+    assert total_surprisal_bits({"tokens": [], "token_logprobs": []}) is None
+
+
+# --- generation-params label -------------------------------------------
+
+def test_gen_params_label_shows_temperature():
+    lp = {"tokens": ["a"], "token_logprobs": [-1.0],
+          "params": {"temperature": 0.8, "top_p": 0.9}}
+    label = gen_params_label(lp)
+    assert "T=0.8" in label and "top_p=0.9" in label
+
+
+def test_gen_params_label_marks_scored():
+    lp = {"tokens": ["a"], "token_logprobs": [-1.0],
+          "params": {"temperature": 1.0, "scored": True}}
+    assert gen_params_label(lp).startswith("scored")
+
+
+def test_gen_params_label_empty_without_params():
+    assert gen_params_label(None) == ""
+    assert gen_params_label({"tokens": ["a"], "token_logprobs": [-1.0]}) == ""

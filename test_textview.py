@@ -149,3 +149,31 @@ def test_candidates_absent_without_top_logprobs(loom):
     loom.continue_branch()  # logprobs but no top_logprobs
     html, _ = _build(loom)
     assert re.search(r"var ALTS=(\{.*?\});", html).group(1) == "{}"
+
+
+# --- cumulative surprisal -----------------------------------------------
+
+def test_cumulative_surprisal_payload_accumulates(loom):
+    import math
+    loom.write("seed")
+    # two generated tokens, each -0.5 logprob (from _lp), across two nodes
+    loom.continue_branch()
+    loom.continue_branch()
+    html, _ = _build(loom)
+    cum = json.loads(re.search(r"var CUM=(\{.*?\});", html).group(1))
+    bits = -(-0.5) / math.log(2)               # per-token surprisal of _lp
+    vals = [v[1] for v in cum.values()]        # cumulative column, in index order
+    assert vals == pytest.approx([bits, 2 * bits], abs=1e-3)  # monotonic running sum (rounded)
+
+
+def test_stats_line_reports_branch_surprisal(loom):
+    loom.write("seed")
+    loom.continue_branch()
+    html, _ = _build(loom)
+    assert "branch surprisal" in html
+    assert "bits/token" in html
+
+
+def test_stats_line_when_no_logprobs(loom):
+    html, _ = _build(loom)   # empty root, nothing scored
+    assert "no logprobs yet" in html

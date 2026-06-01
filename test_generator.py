@@ -32,3 +32,31 @@ def test_slice_returns_none_on_misaligned_boundary():
 
 def test_slice_returns_none_on_length_mismatch():
     assert _slice_to_text(["a", "b"], [-1.0], "", "ab") is None
+
+
+def test_slice_carries_top_logprobs_through_prefix_drop():
+    tokens = ["The", " machine", " began"]
+    lps = [None, -2.0, -1.0]
+    top = [None, {" machine": -2.0, " car": -3.0}, {" began": -1.0, " was": -2.0}]
+    out = _slice_to_text(tokens, lps, "The machine", " began", top_logprobs=top)
+    assert out == {
+        "tokens": [" began"],
+        "token_logprobs": [-1.0],
+        "top_logprobs": [{" began": -1.0, " was": -2.0}],
+    }
+
+
+def test_slice_carries_top_logprobs_when_prefix_empty():
+    tokens = ["hel", "lo"]
+    lps = [None, -1.5]
+    top = [None, {"lo": -1.5, "p": -2.0}]
+    out = _slice_to_text(tokens, lps, "", "hello", top_logprobs=top)
+    assert out["top_logprobs"] == top
+
+
+def test_slice_omits_top_logprobs_on_length_mismatch():
+    # Defensive: a malformed top list shorter than tokens is ignored, not crashed.
+    tokens = ["a", "b"]
+    lps = [None, -1.0]
+    out = _slice_to_text(tokens, lps, "", "ab", top_logprobs=[None])
+    assert "top_logprobs" not in out

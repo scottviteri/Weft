@@ -18,6 +18,7 @@ import json
 
 from coloring import (
     token_segments, hex_for_logprob, token_title, alt_bar_items, logprob_plot_svg,
+    surprisal_bits, gen_params_label,
 )
 
 _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
@@ -41,16 +42,22 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  .altfill{height:10px;background:#6aa3ff;border-radius:2px;}
  .altrow.chosen .altfill{background:#ffd23c;}
  .altpct{color:#888;font-variant-numeric:tabular-nums;}
+ .surp{margin-top:9px;font-size:.8rem;color:#aab;font-variant-numeric:tabular-nums;}
+ .surp b{color:#ffd23c;font-weight:600;}
  .pt{cursor:pointer;transition:r .1s;}
  .plot{margin-top:10px;border-top:1px solid rgba(136,136,136,.25);padding-top:8px;}
  .hint{font-size:.7rem;color:#777;margin-top:8px;}
 </style></head><body>
  <div class="text">__TEXT__</div>
  <div class="altbar" id="altbar"><div class="alttitle">hover a word for its next-token candidates</div></div>
+ <div class="surp" id="surp">__STATS__</div>
  <div class="plot">__SVG__</div>
  <div class="hint">blue bar = branch point (between the shared and diverging token) · click cycles siblings, shift-click reverses · alt-click a word to split a new branch there</div>
+ <div class="hint" style="color:#6aa3ff;font-family:ui-monospace,monospace;">iframe node: __NODEID__</div>
  <script>
  var ALTS=__ALTS__;
+ var CUM=__CUM__;
+ var STATS=__STATSJS__;
  var CNT=0;
  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
  function disp(s){return s.replace(/\\n/g,'\\u23ce').replace(/ /g,'\\u00b7')||'\\u2205';}
@@ -67,8 +74,15 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
        +'<span class="altpct">'+(r[1]*100).toFixed(1)+'%</span></div>';
    }).join('');
  }
- function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);}
- function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);}
+ function showSurp(i){
+   var c=CUM[i],el=document.getElementById('surp');
+   if(!el){return;}
+   if(c){el.innerHTML='this token <b>'+c[0].toFixed(1)+'</b> bits · cumulative to here <b>'
+     +c[1].toFixed(1)+'</b> bits'+(c[0]>0?' (1 in '+Math.round(Math.pow(2,c[0])).toLocaleString()+')':'');}
+ }
+ function restoreSurp(){var el=document.getElementById('surp');if(el){el.innerHTML=STATS;}}
+ function enter(i){var s=spanFor(i);if(s){s.classList.add('hl');}setPlot(i,true);showAlts(i);showSurp(i);}
+ function leave(i){var s=spanFor(i);if(s){s.classList.remove('hl');}setPlot(i,false);restoreSurp();}
  // In-text clicks reach the app by writing into a hidden Streamlit text_input in
  // the parent (allow-same-origin lets us reach it) and committing it, which
  // reruns over the existing WebSocket — no page reload. A counter keeps each
@@ -151,9 +165,12 @@ def build_text_component(loom):
     path = loom.tree.get_path_to_node(loom.current_node.id)
     spans = []
     alts = {}            # global token index -> [[token, prob, is_chosen], ...]
+    cum = {}             # global token index -> [token_bits, cumulative_bits_from_root]
     plot_points = []     # (global index, logprob) for the plot window
     gidx = 0
     any_lp = False
+    cum_bits = 0.0       # running total surprisal (bits) from root
+    n_scored = 0         # tokens that carry a logprob
 
     # The plot covers from just before the most recent branch point (the deepest
     # fork on the path) through the current node, so you can see the logprob
@@ -194,6 +211,10 @@ def build_text_component(loom):
                 any_lp = True
                 styles = f"color:{hex_for_logprob(lp)}"
                 title = token_title(lp)
+                t_bits = surprisal_bits(lp)
+                cum_bits += t_bits
+                n_scored += 1
+                cum[gidx] = [round(t_bits, 3), round(cum_bits, 3)]
                 if in_plot:
                     plot_points.append((gidx, lp))
 
@@ -223,8 +244,25 @@ def build_text_component(loom):
             char_off += len(tok)
             gidx += 1
 
+    # Default stats line: total surprisal of the whole branch (root -> current)
+    # plus the average bits/token, and the temperature the current node was
+    # produced at (surprisal only compares fairly across equal temperatures).
+    if n_scored:
+        per_tok = cum_bits / n_scored
+        stats = (f"branch surprisal <b>{cum_bits:.1f}</b> bits over {n_scored} tokens "
+                 f"· <b>{per_tok:.2f}</b> bits/token")
+        plabel = gen_params_label(loom.current_node.logprobs)
+        if plabel:
+            stats += f" · this node: {plabel}"
+    else:
+        stats = "no logprobs yet — score this text to measure its surprisal"
+
     component = (_TEMPLATE
                  .replace("__TEXT__", "".join(spans))
                  .replace("__SVG__", logprob_plot_svg(plot_points, mark_idx=mark_idx))
+                 .replace("__NODEID__", html.escape(loom.current_node.id))
+                 .replace("__STATS__", stats)
+                 .replace("__STATSJS__", json.dumps(stats))
+                 .replace("__CUM__", json.dumps(cum).replace("</", "<\\/"))
                  .replace("__ALTS__", json.dumps(alts).replace("</", "<\\/")))
     return component, any_lp

@@ -74,10 +74,15 @@ both the prefix and the current node, and generated branches are tagged with
 **perplexity** so you can rank them by how confident the model was. In the GUI
 the Current Text view is fully interactive:
 
-- **Hover any word** to see its exact logprob/probability, highlight its point
-  on a **logprob-vs-token-index plot**, and pop up a bar of the **top-*k*
-  next-token candidates** the model considered at that position (the sampled
-  token highlighted). A gradient color-bar gives the scale.
+- **Hover any word** to see its exact logprob/probability and **surprisal in
+  bits**, highlight its point on a **logprob-vs-token-index plot**, and pop up a
+  bar of the **top-*k* next-token candidates** the model considered at that
+  position (the sampled token highlighted). A gradient color-bar gives the scale.
+- A **cumulative-surprisal** readout shows how many bits the model needed to
+  arrive at the hovered token, and the whole branch's total (root→current) with
+  its average bits/token — so you can see exactly *how weird* a path is. Each
+  node records the **temperature** it was sampled at (shown alongside), because
+  surprisal is only comparable across nodes produced at the same temperature.
 - **Click a branch-point word** (underlined where the path forked) to switch to
   the next sibling; **shift-click** for the previous one (both wrap around).
 - **Alt-click any word** to split there and open a fresh sibling branch, so you
@@ -92,8 +97,10 @@ Text that has no logprobs yet—the human-written seed, pasted text, the half yo
 keep after a split—can be **scored** to color it too (the "Color / Score"
 expander in the GUI, `S` in the TUI, or `Loom.score_node()`/`score_tree()`).
 Scoring runs an `echo=True` pass that returns the model's per-token logprobs for
-the text itself, conditioned on its prefix; it gives surprisal coloring and
-perplexity but not the candidates bar (echo doesn't return top-*k*).
+the text itself, conditioned on its prefix. It requests the top-*k* candidates
+too, so scored human-written text gets the **full** treatment—surprisal coloring,
+perplexity, *and* the hover candidates bar—just like generated text, letting you
+see what the model would rather have written at each of your own words.
 
 (In-text clicking drives navigation through the same URL query-param channel the
 GUI already uses to persist position, so it works on a saved/loaded tree—save

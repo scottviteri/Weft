@@ -4,8 +4,8 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pathlib import Path
 from api import Loom, TREES_DIR
-from generator import perplexity
-from coloring import color_bar_html
+from generator import perplexity, total_surprisal_bits
+from coloring import color_bar_html, gen_params_label
 from textview import build_text_component
 
 st.set_page_config(page_title="Loom", page_icon="🧵", layout="wide")
@@ -245,26 +245,37 @@ with st.sidebar:
     tree_lines = render_tree_text(loom.tree.root, current_id=loom.current_node.id)
     st.code("\n".join(tree_lines), language=None)
 
-    # Navigation dropdown
+    # Navigation dropdown. Drive navigation only from a genuine USER pick via an
+    # on_change callback — NOT from the widget's stored value on every rerun.
+    # Otherwise, after current_node moves by other means (a fork click, the nav
+    # buttons), the selectbox would still hold its stale value and reassert it,
+    # snapping the cursor back. We also sync the widget's stored value to the
+    # authoritative current_node before it renders so programmatic navigation
+    # shows up in the dropdown rather than being reverted.
     node_list = collect_node_ids(loom.tree.root)
     node_ids = [nid for nid, _ in node_list]
     node_labels = {nid: label for nid, label in node_list}
 
-    current_idx = node_ids.index(loom.current_node.id) if loom.current_node.id in node_ids else 0
-    selected = st.selectbox(
+    def _on_node_select():
+        # Runs before the script body on the triggering rerun, so use
+        # session_state (module globals like `loom` aren't reassigned yet).
+        lm = st.session_state.loom
+        sel = st.session_state.node_select
+        target = lm.tree.get_node(sel)
+        if target:
+            lm.current_node = target
+            if "file" in st.query_params:
+                st.query_params["node"] = sel
+
+    if loom.current_node.id in node_ids:
+        st.session_state.node_select = loom.current_node.id
+    st.selectbox(
         "Jump to node:",
         node_ids,
-        index=current_idx,
         format_func=lambda x: node_labels.get(x, x),
-        key="node_select"
+        key="node_select",
+        on_change=_on_node_select,
     )
-    if selected != loom.current_node.id:
-        target_node = loom.tree.get_node(selected)
-        if target_node:
-            loom.current_node = target_node
-            if "file" in params:
-                st.query_params["node"] = selected
-            st.rerun()
 
 # Main content
 col_left, col_right = st.columns([2, 1])
@@ -286,7 +297,14 @@ with col_left:
     else:
         st.info("Empty tree. Write some text to start.")
 
-    st.caption(f"Node: {loom.current_node.id} | Depth: {loom.depth} | Children: {len(loom.current_node.children)}")
+    path_bits = sum(b for b in (total_surprisal_bits(n.logprobs) for n in path) if b is not None)
+    caption = f"Node: {loom.current_node.id} | Depth: {loom.depth} | Children: {len(loom.current_node.children)}"
+    if path_bits:
+        caption += f" | branch surprisal: {path_bits:.0f} bits"
+    plabel = gen_params_label(loom.current_node.logprobs)
+    if plabel:
+        caption += f" | this node: {plabel}"
+    st.caption(caption)
 
     if loom.current_node.analysis:
         with st.expander("📊 Analysis", expanded=True):
@@ -329,7 +347,13 @@ with col_right:
                 if len(gen.text) > 150:
                     preview += "..."
                 ppl = perplexity(gen.logprobs)
+                bits = total_surprisal_bits(gen.logprobs)
+                plabel = gen_params_label(gen.logprobs)
                 tag = f" · ppl {ppl:.1f}" if ppl is not None else ""
+                if bits is not None:
+                    tag += f" · {bits:.0f} bits"
+                if plabel:
+                    tag += f" · {plabel}"
                 st.markdown(f"**[{i+1}]{tag}** {preview}")
                 if st.button(f"Select {i+1}", key=f"select_{i}", use_container_width=True):
                     loom.select(i + 1)
