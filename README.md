@@ -2,11 +2,27 @@
 
 A minimal tree-based writing interface for exploring branching text with LLMs. Inspired by and derived from [socketteer/loom](https://github.com/socketteer/loom).
 
+![CLI with Claude Analysis](Images/cli.webp)
+*Terminal UI showing Claude's meta-analysis of a text continuation*
+
 ## What is this?
 
 Weft lets you explore the "multiverse" of possible text continuations from a language model. Instead of generating one continuation and moving on, you generate multiple branches, select the most interesting ones, and continue exploring from there. The result is a tree of text that captures different narrative or argumentative paths.
 
 The name "Weft" refers to the horizontal threads that cross the warp in weaving—fitting the loom metaphor while being distinct.
+
+## Key Feature: Claude Meta-Analysis
+
+Weft's novel contribution is using a second model (Claude) to analyze what the base model "thinks" is happening based on how it continues text. When you run the `analyze` command, Claude examines:
+
+1. **The prefix** - What context has been established
+2. **The continuation** - What the base model generated
+3. **The interpretation** - What the base model seems to believe about the text's meaning, genre, or direction
+
+This creates a fascinating window into how base models interpret ambiguous prompts—revealing implicit assumptions about narrative structure, genre conventions, and semantic relationships.
+
+![Programmatic API](Images/api.webp)
+*Using the Python API with Claude Code for scriptable exploration*
 
 ## Relationship to Loom
 
@@ -42,6 +58,27 @@ pip install -r requirements.txt
 You'll need API keys for:
 - **Together AI** (`TOGETHER_API_KEY`) - for text generation
 - **Anthropic** (`ANTHROPIC_API_KEY`) - for the analyze feature (optional)
+
+### Setting Up a Together AI Endpoint
+
+Weft uses Together AI's serverless endpoints for text generation. By default, it's configured to use a Qwen3 base model endpoint. To set up your own:
+
+1. Go to [Together AI](https://together.ai/) and create an account
+2. Navigate to **Endpoints** in the dashboard
+3. Click **Create Endpoint** and select a base model (recommended: `Qwen/Qwen3-30B-A3B-Base` for quality, or `Qwen/Qwen3-0.6B-Base` for speed)
+4. Configure autoscaling (min/max replicas) based on your needs
+5. Copy the endpoint name (e.g., `your-username/Qwen/Qwen3-30B-A3B-Base-abc123`)
+
+Then update the model in `generator.py`:
+
+```python
+@dataclass
+class GenerationConfig:
+    model: str = "your-endpoint-name-here"
+    # ...
+```
+
+**Why base models?** Unlike instruction-tuned models, base models don't have a built-in "assistant" persona. They simply predict what text comes next, making them ideal for creative exploration where you want to see how the model interprets ambiguous prompts.
 
 ## Usage
 
@@ -141,7 +178,7 @@ From the original [Loom documentation](https://generative.ink/posts/loom-interfa
 
 The stochasticity of base models becomes an advantage when you can apply selection pressure to outputs. Instead of fighting randomness, you embrace it—generating many possibilities and choosing the most interesting paths.
 
-Weft adds one twist: using a second model (Claude) to provide meta-commentary on what the first model (Qwen) seems to "think" is happening, based on how it continues the text.
+**Weft's twist:** By using Claude to analyze Qwen's continuations, we get a window into the base model's "interpretation" of the text. When Qwen continues a sentence, it reveals what it believes the text is about—its genre, tone, and direction. Claude's meta-analysis makes these implicit interpretations explicit, turning exploration into a kind of model archaeology.
 
 ## Credits
 
