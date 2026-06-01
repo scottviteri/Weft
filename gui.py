@@ -56,15 +56,30 @@ def get_siblings():
     next_sib = siblings[idx + 1] if idx < len(siblings) - 1 else None
     return prev_sib, next_sib
 
-def collect_tree_nodes(node, indent=0, current_id=None):
-    """Collect tree nodes as a flat list for rendering."""
-    preview = node.text[:40].replace('\n', ' ') if node.text else "[empty]"
-    if node.text and len(node.text) > 40:
+def collect_tree_nodes(node, prefix="", is_last=True, current_id=None):
+    """Collect tree nodes with tree-drawing characters."""
+    preview = node.text[:35].replace('\n', ' ') if node.text else "[empty]"
+    if node.text and len(node.text) > 35:
         preview += "..."
     is_current = node.id == current_id
-    nodes = [(node.id, indent, preview, is_current)]
-    for child in node.children:
-        nodes.extend(collect_tree_nodes(child, indent + 1, current_id))
+
+    # Build the tree prefix
+    if prefix == "":
+        connector = ""
+    else:
+        connector = "└─ " if is_last else "├─ "
+
+    nodes = [(node.id, prefix + connector, preview, is_current)]
+
+    # Prepare prefix for children
+    if prefix == "":
+        child_prefix = ""
+    else:
+        child_prefix = prefix + ("   " if is_last else "│  ")
+
+    for i, child in enumerate(node.children):
+        is_last_child = (i == len(node.children) - 1)
+        nodes.extend(collect_tree_nodes(child, child_prefix, is_last_child, current_id))
     return nodes
 
 
@@ -176,10 +191,9 @@ with st.sidebar:
     # Tree view
     st.subheader("Tree Structure")
     tree_nodes = collect_tree_nodes(loom.tree.root, current_id=loom.current_node.id)
-    for node_id, indent, preview, is_current in tree_nodes:
-        indent_str = "　" * indent  # Use em-space for indentation
-        marker = "▶ " if is_current else "  "
-        label = f"{indent_str}{marker}{preview}"
+    for node_id, tree_prefix, preview, is_current in tree_nodes:
+        marker = "▶" if is_current else "○"
+        label = f"`{tree_prefix}{marker}` {preview}"
         if st.button(label, key=f"tree_{node_id}", use_container_width=True,
                      type="primary" if is_current else "secondary"):
             target_node = loom.tree.get_node(node_id)
