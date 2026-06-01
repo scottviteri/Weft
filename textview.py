@@ -90,10 +90,11 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
        ['keydown','keypress','keyup'].forEach(function(t){
          input.dispatchEvent(new window.parent.KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
        });
-       // Self-heal: a successful commit reruns the app and reloads this iframe,
-       // destroying the timer. If nothing reran (commit didn't take), fall back
-       // to the full-reload navigation after a short grace period.
-       setTimeout(function(){navFallback(kind==='split'?'splitat':'goto', value);}, 700);
+       // The commit reruns the app over the WebSocket (no reload). We do NOT
+       // schedule a timed fallback: the rerun tears down this iframe, but the
+       // teardown can lag the timer and fire a spurious reload. If the input is
+       // present the commit is reliable (the fallback below is only for the
+       // case where we can't reach it at all).
        return;
      }
    }catch(e){}
