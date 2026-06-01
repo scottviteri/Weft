@@ -4,7 +4,6 @@ Presentation only: all state lives in a `Loom` (api.py) and every mutation is
 delegated to it, so the TUI, the Streamlit GUI, and scripts share one code path.
 """
 
-import importlib
 from pathlib import Path
 from datetime import datetime
 
@@ -137,7 +136,6 @@ class LoomUI:
   [cyan]t[/cyan] / [cyan]tree[/cyan]      - Show full tree structure
   [cyan]s[/cyan] / [cyan]save[/cyan]      - Save tree to file
   [cyan]o[/cyan] / [cyan]options[/cyan]   - Configure generation settings
-  [cyan]R[/cyan] / [cyan]reload[/cyan]    - Hot-reload code (after editing)
   [cyan]h[/cyan] / [cyan]help[/cyan]      - Show this help
   [cyan]q[/cyan] / [cyan]quit[/cyan]      - Exit
 """
@@ -306,20 +304,6 @@ class LoomUI:
         style = "yellow" if result.startswith(("Error", "Nothing")) else "green"
         self.console.print(f"[{style}]{result}[/{style}]")
 
-    def reload_modules(self):
-        """Hot-reload the generator module and rebuild the generator."""
-        import generator as generator_module
-        importlib.reload(generator_module)
-        from generator import Generator, GenerationConfig
-        cfg = self.generator.config
-        self.loom.generator = Generator(GenerationConfig(
-            model=cfg.model,
-            max_tokens=cfg.max_tokens,
-            temperature=cfg.temperature,
-            top_p=cfg.top_p,
-        ))
-        self.console.print("[green]Modules reloaded[/green]")
-
     def run(self):
         """Main UI loop."""
         self.console.print("[bold magenta]== Loom: Tree-based Writing ==[/bold magenta]\n")
@@ -333,10 +317,6 @@ class LoomUI:
 
             if raw == "S" or cmd == "score":
                 self.score_node()
-                input("\nPress Enter to continue...")
-
-            elif raw == "R" or cmd == "reload":
-                self.reload_modules()
                 input("\nPress Enter to continue...")
 
             elif cmd in ("q", "quit", "exit"):

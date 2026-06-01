@@ -77,13 +77,19 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  function sendCmd(kind,value){
    try{
      var pdoc=window.parent.document;
-     var input=pdoc.querySelector('input[aria-label="weft_cmd"]');
+     // Streamlit tags keyed widgets with a `st-key-<key>` class on their
+     // container; that's a more reliable handle than the input's aria-label.
+     var input=pdoc.querySelector('.st-key-weft_cmd input')||pdoc.querySelector('input[aria-label="weft_cmd"]');
      if(input){
        CNT++;
        var setter=Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype,'value').set;
        setter.call(input,kind+':'+value+':'+CNT);
+       // React tracks the value via its own setter, so dispatch input to make it
+       // notice the change, then Enter to commit (Streamlit reruns on Enter).
        input.dispatchEvent(new window.parent.Event('input',{bubbles:true}));
-       input.dispatchEvent(new window.parent.KeyboardEvent('keydown',{key:'Enter',keyCode:13,which:13,bubbles:true}));
+       ['keydown','keypress','keyup'].forEach(function(t){
+         input.dispatchEvent(new window.parent.KeyboardEvent(t,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));
+       });
        // Self-heal: a successful commit reruns the app and reloads this iframe,
        // destroying the timer. If nothing reran (commit didn't take), fall back
        // to the full-reload navigation after a short grace period.

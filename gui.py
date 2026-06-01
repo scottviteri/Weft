@@ -62,11 +62,11 @@ def _apply_action(action, arg):
 # carries a counter so repeats register. Falls back to query params (below) when
 # the component can't reach the input.
 st.markdown(
-    '<style>[data-testid="stTextInput"]:has(input[aria-label="weft_cmd"])'
-    '{position:absolute;width:1px;height:0;overflow:hidden;opacity:0;pointer-events:none;}</style>',
+    "<style>.st-key-weft_cmd{position:absolute;width:1px;height:0;"
+    "overflow:hidden;opacity:0;pointer-events:none;}</style>",
     unsafe_allow_html=True,
 )
-_cmd = st.text_input("weft_cmd", value="", key="weft_cmd", label_visibility="collapsed")
+_cmd = st.text_input("weft_cmd", key="weft_cmd", label_visibility="collapsed")
 if _cmd and _cmd != st.session_state.get("weft_cmd_done"):
     st.session_state.weft_cmd_done = _cmd
     _parts = _cmd.split(":")
