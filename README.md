@@ -2,8 +2,7 @@
 
 Explore branching text continuations from base LLMs, with Claude meta-analysis to reveal how the model interprets your text. A tree-based writing interface inspired by [socketteer/loom](https://github.com/socketteer/loom).
 
-![CLI with Claude Analysis](Images/cli.webp)
-*Terminal UI showing Claude's meta-analysis of a text continuation*
+![Streamlit GUI](Images/gui.png)
 
 ## What is this?
 
@@ -20,9 +19,6 @@ Weft's novel contribution is using a second model (Claude) to analyze what the b
 3. **The interpretation** - What the base model seems to believe about the text's meaning, genre, or direction
 
 This creates a fascinating window into how base models interpret ambiguous prompts—revealing implicit assumptions about narrative structure, genre conventions, and semantic relationships.
-
-![Programmatic API](Images/api.webp)
-*Using the Python API with Claude Code for scriptable exploration*
 
 ## Relationship to Loom
 
@@ -88,9 +84,6 @@ class GenerationConfig:
 streamlit run gui.py
 ```
 
-![Streamlit GUI](Images/gui.png)
-*Streamlit GUI with tree navigation, text display, and Claude analysis*
-
 ### Programmatic API
 
 ```python
@@ -130,11 +123,17 @@ print(loom.state())
 print(loom.tree_view())
 ```
 
+![Programmatic API](Images/api.webp)
+*Using the Python API with Claude Code*
+
 ### Terminal UI (Rich)
 
 ```bash
 python loom.py
 ```
+
+![CLI with Claude Analysis](Images/cli.webp)
+*Terminal UI with Claude meta-analysis*
 
 ## Commands (Terminal UI)
 
