@@ -87,6 +87,9 @@ the Current Text view is fully interactive:
   the next sibling; **shift-click** for the previous one (both wrap around).
 - **Alt-click any word** to split there and open a fresh sibling branch, so you
   can rewrite or regenerate from mid-sentence.
+- **Click a next-token candidate** in the hover bar to fork right before that
+  word and start a new branch with the candidate you picked — turning "what else
+  could the model have said here?" into an actual branch you can continue.
 
 The top-*k* candidates are the local conditional distribution pyloom's block
 multiverse is built from—shown per-token on demand rather than as a recursive
@@ -106,9 +109,10 @@ The result: scored human text gets the **full** treatment — coloring, perplexi
 *and* the candidates bar — letting you see what the model would rather have
 written at each of your own words.
 
-(In-text clicking drives navigation through the same URL query-param channel the
-GUI already uses to persist position, so it works on a saved/loaded tree—save
-once and the interactions round-trip cleanly.)
+(In-text clicks drive the app without a page reload: the component writes the
+action into a hidden Streamlit widget that reruns over the existing WebSocket and
+mutates the node in place. The current position is also mirrored to a URL query
+param purely for refresh durability, so a saved/loaded tree round-trips cleanly.)
 
 ### Loom as a library agents can drive
 
@@ -221,11 +225,14 @@ python loom.py
 | `a` | Analyze current node with Claude |
 | `1-9` | Select branch by number |
 | `u` | Go up to parent |
+| `n` / `p` | Cycle to next / previous sibling |
+| `b` | Branch here (split the current node and open a new sibling) |
+| `k` | Show top-*k* next-token candidates for the current node |
+| `S` | Score the current node (per-token logprobs for human-written text) |
 | `r` | Go to root |
 | `t` | Show tree structure |
 | `s` | Save |
 | `o` | Options (temperature, etc.) |
-| `R` | Hot-reload code |
 | `q` | Quit |
 
 ## Tests
@@ -251,10 +258,11 @@ And forks into three distinct directions:
 - **The tower of words** — text as "a brick in a tower that would stretch beyond the sky"; dreaming of *writing* as well as reading, this fork itself branches into a quiet "rebellion… refusal to be confined" and the appearance of its maker, "Dr. Elena Voss"
 - **Surreal worlds** — "cathedrals of meaning," "wars fought… with the sheer weight of logic," and the spaces between words, ending on a recursive bookend: "in dreaming, began to read, and in reading, began to remember, and in remembering, began to write"
 
-Every generated node carries per-token logprobs **and top-k candidates**, so the
-text renders colored by surprisal and the hover candidates bar works throughout.
-The second fork's two children make a deeper branch point you can cycle between
-by clicking the word where they diverge.
+Every generated node carries per-token logprobs **and top-k candidates**, and the
+human-written root seed has been **scored** (so it's colored and has candidates
+too) — the surprisal coloring and the hover candidates bar work throughout. The
+second fork's two children make a deeper branch point you can cycle between by
+clicking the word where they diverge.
 
 Load it with:
 ```python
