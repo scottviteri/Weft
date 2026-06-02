@@ -4,8 +4,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 from pathlib import Path
 from api import Loom, TREES_DIR
+from urllib.parse import unquote
 from generator import perplexity, total_surprisal_bits
-from coloring import color_bar_html, gen_params_label
+from coloring import gen_params_label
 from textview import build_text_component
 
 st.set_page_config(page_title="Loom", page_icon="🧵", layout="wide")
@@ -55,6 +56,17 @@ def _apply_action(action, arg):
             offset = 0
         if offset > 0:
             loom.split_and_branch(offset)
+    elif action == "forktok":
+        # arg is "<offset>|<uri-encoded token>": fork before that token and seed
+        # the new branch with the chosen candidate token.
+        off_str, _, enc = (arg or "").partition("|")
+        try:
+            offset = int(off_str)
+        except (TypeError, ValueError):
+            offset = -1
+        token = unquote(enc)
+        if offset >= 0 and token:
+            loom.branch_with_text(offset, token)
     if "file" in params:                       # for refresh durability only
         st.query_params["node"] = loom.current_node.id
 
@@ -291,9 +303,12 @@ with col_left:
         component, has_lp = build_text_component(loom)
         total_chars = len(prefix_text) + len(current_text)
         text_h = max(80, min(360, int(total_chars * 0.32)))
-        components.html(component, height=text_h + 320, scrolling=True)
-        if has_lp:
-            st.markdown(color_bar_html(), unsafe_allow_html=True)
+        # Covers the fixed chrome below the text (candidates bar 128 + surprisal
+        # line + plot + legend + hints) so the component fits without the iframe
+        # having to grow past its allocated block (which would overlap the
+        # caption below). The chrome is constant height now, so this stays valid
+        # regardless of how many next-token candidates a hovered token has.
+        components.html(component, height=text_h + 470, scrolling=True)
     else:
         st.info("Empty tree. Write some text to start.")
 

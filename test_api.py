@@ -33,9 +33,12 @@ class FakeGenerator:
         self.calls.append(("multi", prompt, n))
         return [Generation(f" branch{i}", logprobs=_lp(f" branch{i}")) for i in range(n)]
 
-    def score(self, prefix, text):
-        self.calls.append(("score", prefix, text))
-        return Generation(text, logprobs={"tokens": [text], "token_logprobs": [-0.7]})
+    def score(self, prefix, text, with_candidates=False, candidate_cap=120):
+        self.calls.append(("score", prefix, text, with_candidates))
+        lp = {"tokens": [text], "token_logprobs": [-0.7]}
+        if with_candidates:
+            lp["top_logprobs"] = [{text: -0.7, " other": -1.5}]
+        return Generation(text, logprobs=lp)
 
 
 @pytest.fixture
@@ -280,6 +283,34 @@ def test_split_and_branch_invalid_index_errors(loom):
     before = loom.current_node
     assert "Error" in loom.split_and_branch(0)
     assert before.children == []  # nothing created on failure
+
+
+def test_branch_with_text_seeds_new_sibling(loom):
+    loom.write("hello world")
+    node = loom.current_node
+    loom.branch_with_text(5, " there")
+    # like split_and_branch, but the new branch starts with the chosen token
+    assert node.text == "hello"
+    assert [c.text for c in node.children] == [" world", " there"]
+    assert loom.current_node is node.children[1]
+
+
+def test_branch_with_text_at_zero_forks_sibling_of_current(loom):
+    loom.write("seed")
+    loom.write(" tail")            # child; current is the child
+    child = loom.current_node
+    parent = loom.tree.get_node(child.parent_id)
+    loom.branch_with_text(0, " other")
+    # offset 0 means diverge before the first token -> sibling of current node
+    assert child.text == " tail"  # untouched
+    assert loom.current_node.parent_id == parent.id
+    assert loom.current_node.text == " other"
+    assert loom.current_node in parent.children
+
+
+def test_branch_with_text_at_root_zero_errors(loom):
+    loom.write("seed")             # current is root
+    assert "Error" in loom.branch_with_text(0, "x")
 
 
 # --- score (echo-based coloring of existing text) ----------------------

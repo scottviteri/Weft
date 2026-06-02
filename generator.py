@@ -2,6 +2,7 @@
 
 import os
 import math
+from concurrent.futures import ThreadPoolExecutor
 from together import Together
 from dataclasses import dataclass, field
 
@@ -159,16 +160,20 @@ class Generator:
         params = {"temperature": temp, "top_p": self.config.top_p, "model": self.config.model}
         return _extract(response.choices[0], params)
 
-    def score(self, prefix: str, text: str) -> Generation:
+    def score(self, prefix: str, text: str,
+              with_candidates: bool = False, candidate_cap: int = 120) -> Generation:
         """Score existing `text` (conditioned on `prefix`) without generating.
 
         Uses an `echo=True`, `max_tokens=1` pass so the endpoint returns
         per-token logprobs for the *prompt* itself, then slices off the prefix
         tokens so the result aligns exactly with `text`. This colors
         human-written or imported text the same way generated text is colored.
-        Requesting `logprobs=TOP_K` makes the echo pass also return the top-k
-        candidate tokens per prompt position, so scored (human-written) text gets
-        the same hover candidates bar as generated text — not just coloring.
+
+        The echo pass returns the chosen token's logprob but NOT the top-k
+        alternatives (a vLLM limitation — only *generated* tokens get top_logprobs).
+        So when `with_candidates` is set, we additionally ask the model to predict
+        each position (see `candidates_for_tokens`) to recover the hover candidates
+        bar for human-written text, up to `candidate_cap` tokens.
 
         Returns a Generation whose logprobs cover `text`, or logprobs=None when
         the tokenization can't be aligned to the prefix boundary.
@@ -182,7 +187,7 @@ class Generator:
             prompt=prefix + text,
             max_tokens=1,
             echo=True,
-            logprobs=TOP_K,
+            logprobs=1,
             temperature=1.0,
         )
         pr = getattr(response, "prompt", None)
@@ -191,12 +196,61 @@ class Generator:
         plp = pr[0].logprobs
         tokens = list(getattr(plp, "tokens", None) or [])
         tlps = list(getattr(plp, "token_logprobs", None) or [])
-        top = getattr(plp, "top_logprobs", None)
-        top = [dict(d) if d is not None else None for d in top] if top is not None else None
-        logprobs = _slice_to_text(tokens, tlps, prefix, text, top_logprobs=top)
+        logprobs = _slice_to_text(tokens, tlps, prefix, text)
         if logprobs is not None:
             logprobs["params"] = {"temperature": 1.0, "model": self.config.model, "scored": True}
+            if with_candidates:
+                tops = self.candidates_for_tokens(
+                    prefix, logprobs["tokens"], logprobs["token_logprobs"], cap=candidate_cap)
+                if any(t is not None for t in tops):
+                    logprobs["top_logprobs"] = tops
         return Generation(text=text, logprobs=logprobs)
+
+    def candidates_for_tokens(self, prefix, tokens, token_logprobs=None,
+                              cap: int = 120, max_workers: int = 12):
+        """Top-k next-token candidates at each position of `tokens`.
+
+        The echo pass gives the chosen token's logprob but no alternatives, so to
+        show "what else could go here" for human-written text we ask the model to
+        predict each position: a 1-token generation whose prompt is everything up
+        to that token. That generated token's `top_logprobs` IS the candidate
+        distribution at that position. Positions are fetched concurrently.
+
+        Returns a list aligned to `tokens`; each entry is a {token: logprob} dict
+        (with the actual token merged in so the bar always shows what was written
+        and can mark it chosen), or None where unavailable — no preceding context
+        (the global root's first token), beyond `cap`, or on error.
+        """
+        n = len(tokens)
+        limit = min(n, max(0, cap))
+
+        def fetch(i):
+            p = prefix + "".join(tokens[:i])
+            if not p:                       # no context to condition on
+                return i, None
+            try:
+                resp = self.client.completions.create(
+                    model=self.config.model, prompt=p, max_tokens=1,
+                    logprobs=TOP_K, temperature=1.0,
+                )
+                lp = getattr(resp.choices[0], "logprobs", None)
+                top = getattr(lp, "top_logprobs", None) if lp is not None else None
+                d = dict(top[0]) if top and top[0] is not None else {}
+            except Exception:
+                return i, None
+            actual = tokens[i]
+            if actual not in d:             # always include what was actually written
+                la = token_logprobs[i] if token_logprobs and i < len(token_logprobs) else None
+                if la is not None:
+                    d[actual] = la
+            return i, (d or None)
+
+        out = [None] * n
+        if limit:
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                for i, d in ex.map(fetch, range(limit)):
+                    out[i] = d
+        return out
 
 
 def _slice_to_text(tokens, token_logprobs, prefix, text, top_logprobs=None):

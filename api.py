@@ -218,12 +218,47 @@ class Loom:
         self.current_node = new_node
         return f"Split at {char_index} and opened new sibling branch {new_node.id}."
 
-    def score_node(self, node_id: str | None = None) -> str:
+    def branch_with_text(self, char_index: int, seed_text: str) -> str:
+        """Fork before `char_index` and seed the new sibling with `seed_text`.
+
+        Like `split_and_branch`, but the new branch starts with given text
+        instead of empty. Used by the candidates bar: clicking an alternative
+        next-token forks the path right before that position and begins the new
+        branch with the chosen token, ready to continue generating from it.
+
+        `char_index == 0` means "before the first token of the current node",
+        i.e. diverge at the parent — so the new branch becomes a sibling of the
+        current node rather than splitting it.
+        """
+        if not seed_text:
+            return "Error: no seed text."
+        if char_index == 0:
+            parent_id = self.current_node.parent_id
+            if parent_id is None:
+                return "Error: can't fork before the root."
+            new_node = self.tree.add_branch(parent_id, seed_text)
+            self.current_node = new_node
+            return f"Forked a sibling branch {new_node.id} seeded with {seed_text!r}."
+        split_node_id = self.current_node.id
+        result = self.split(char_index, keep_remainder=True)
+        if result.startswith("Error"):
+            return result
+        new_node = self.tree.add_branch(split_node_id, seed_text)
+        self.current_node = new_node
+        return f"Forked at {char_index}; new branch {new_node.id} seeded with {seed_text!r}."
+
+    def score_node(self, node_id: str | None = None,
+                   with_candidates: bool = True, candidate_cap: int = 120) -> str:
         """Compute per-token logprobs for an existing node via an echo pass.
 
         Conditions on the node's real prefix (the path from root), so the
         coloring matches what the model would have assigned. Lets human-written
         or imported text — including the root seed — be colored by surprisal.
+
+        With `with_candidates` (the default), it also fetches the top-k next-token
+        candidates at each position so the hover bar works on human text too; this
+        costs one extra 1-token request per token (concurrent, capped at
+        `candidate_cap`). Pass `with_candidates=False` for coloring only.
         """
         node = self.tree.get_node(node_id) if node_id else self.current_node
         if node is None:
@@ -232,20 +267,27 @@ class Loom:
             return "Nothing to score (empty node)."
         path = self.tree.get_path_to_node(node.id)
         prefix = "".join(n.text for n in path[:-1])
-        gen = self.generator.score(prefix, node.text)
+        gen = self.generator.score(prefix, node.text,
+                                   with_candidates=with_candidates, candidate_cap=candidate_cap)
         if gen.logprobs is None:
             return "Error: couldn't align scored tokens to the text."
         node.logprobs = gen.logprobs
         ppl = perplexity(gen.logprobs)
         return f"Scored node {node.id}" + (f" (ppl {ppl:.1f})" if ppl is not None else "")
 
-    def score_tree(self) -> str:
-        """Score every node that has text but no logprobs yet."""
+    def score_tree(self, with_candidates: bool = False, candidate_cap: int = 120) -> str:
+        """Score every node that has text but no logprobs yet.
+
+        Defaults to coloring only (`with_candidates=False`): fetching candidates
+        for every node of a large tree multiplies the request count, so it's
+        opt-in here even though `score_node` enables it.
+        """
         scored = 0
         for node in list(self.tree._node_index.values()):
             if node.text and not node.logprobs:
                 prefix = "".join(n.text for n in self.tree.get_path_to_node(node.id)[:-1])
-                gen = self.generator.score(prefix, node.text)
+                gen = self.generator.score(prefix, node.text,
+                                           with_candidates=with_candidates, candidate_cap=candidate_cap)
                 if gen.logprobs is not None:
                     node.logprobs = gen.logprobs
                     scored += 1

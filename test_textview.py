@@ -35,7 +35,7 @@ class FakeGenerator:
         n = num_branches or self.config.num_branches
         return [Generation(f" branch{i}", logprobs=_lp(f" branch{i}")) for i in range(n)]
 
-    def score(self, prefix, text):
+    def score(self, prefix, text, with_candidates=False, candidate_cap=120):
         return Generation(text, logprobs=_lp(text))
 
 
@@ -177,3 +177,32 @@ def test_stats_line_reports_branch_surprisal(loom):
 def test_stats_line_when_no_logprobs(loom):
     html, _ = _build(loom)   # empty root, nothing scored
     assert "no logprobs yet" in html
+
+
+# --- legend + candidate-fork wiring -------------------------------------
+
+def test_gradient_legend_is_inside_component_when_colored(loom):
+    loom.write("seed")
+    loom.continue_branch()
+    html, has_lp = _build(loom)
+    assert has_lp is True
+    # the expected->surprising legend now lives inside the iframe (not gui.py)
+    assert "linear-gradient" in html
+    assert 'class="legend"' in html
+
+
+def test_no_legend_without_logprobs(loom):
+    html, _ = _build(loom)
+    assert "linear-gradient" not in html
+
+
+def test_candidate_click_forks_via_forktok(monkeypatch, loom):
+    loom.write("seed")
+    node = loom.tree.add_branch(loom.current_node.id, " X",
+                                logprobs=_lp(" X", top={" X": -0.5, " Y": -1.5}))
+    loom.current_node = node
+    html, _ = _build(loom)
+    # candidate rows are clickable and issue a forktok command
+    assert "data-cand=" in html
+    assert "sendCmd('forktok'" in html
+    assert "encodeURIComponent" in html

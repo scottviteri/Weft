@@ -5,7 +5,54 @@ prompt tokens belonging to the prefix so the logprobs line up with the node's
 own text. The Together call itself is exercised manually, not here.
 """
 
-from generator import _slice_to_text
+from generator import _slice_to_text, Generator, GenerationConfig
+
+
+class _FakeClient:
+    """Stands in for the Together client: returns canned top_logprobs per prompt.
+
+    The completions API is reached as `client.completions.create(...)`, so this
+    object serves as both the client and its `.completions` attribute.
+    """
+    def __init__(self, by_prompt):
+        self.completions = self
+        self.by_prompt = by_prompt
+
+    def create(self, model, prompt, max_tokens, logprobs, temperature):
+        top = self.by_prompt.get(prompt)
+
+        class _LP:
+            top_logprobs = [top]
+
+        class _Choice:
+            logprobs = _LP()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        return _Resp()
+
+
+def _gen_with_client(by_prompt):
+    g = Generator.__new__(Generator)            # skip __init__ (no network/key)
+    g.config = GenerationConfig(model="m")
+    g.client = _FakeClient(by_prompt)
+    return g
+
+
+def test_candidates_for_tokens_aligns_and_merges_actual():
+    g = _gen_with_client({"A": {"B": -1.0}, "AB": {"X": -2.0}})
+    out = g.candidates_for_tokens("", ["A", "B", "C"], token_logprobs=[None, -1.0, -0.5])
+    assert out[0] is None                     # no context -> skipped
+    assert out[1] == {"B": -1.0}              # actual token already a candidate
+    assert out[2] == {"X": -2.0, "C": -0.5}   # actual merged in from its echo logprob
+
+
+def test_candidates_for_tokens_respects_cap():
+    g = _gen_with_client({"pre": {"Z": -1.0}})
+    out = g.candidates_for_tokens("pre", ["A", "B", "C"], cap=1)
+    assert out[0] == {"Z": -1.0}
+    assert out[1] is None and out[2] is None  # beyond the cap
 
 
 def test_slice_drops_prefix_tokens():

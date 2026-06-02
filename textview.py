@@ -18,7 +18,7 @@ import json
 
 from coloring import (
     token_segments, hex_for_logprob, token_title, alt_bar_items, logprob_plot_svg,
-    surprisal_bits, gen_params_label,
+    surprisal_bits, gen_params_label, color_bar_html,
 )
 
 _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
@@ -34,15 +34,23 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  .fork:hover{background:#ffd23c;background-clip:content-box;box-shadow:0 0 7px rgba(255,210,60,.95);}
  .fork:active{background:#ffb300;background-clip:content-box;}
  .hl{background:rgba(255,221,0,.45);}
- .altbar{min-height:104px;margin-top:10px;padding-top:8px;border-top:1px solid rgba(136,136,136,.25);}
+ /* Fixed height (fits the max ~6 candidates) so hovering tokens with different
+    candidate counts doesn't change the body height — otherwise the iframe
+    re-fits and overlaps the caption/status Streamlit renders below it. */
+ .altbar{height:128px;overflow:hidden;margin-top:10px;padding-top:8px;border-top:1px solid rgba(136,136,136,.25);}
  .alttitle{font-size:.7rem;color:#888;margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em;}
- .altrow{display:flex;align-items:center;gap:7px;margin:1px 0;font-size:.8rem;}
+ .altrow{display:flex;align-items:center;gap:7px;margin:1px 0;font-size:.8rem;border-radius:3px;}
+ .altrow.forkable{cursor:pointer;}
+ .altrow.forkable:hover{background:rgba(106,163,255,.18);}
  .altlabel{width:84px;flex:0 0 84px;font-family:ui-monospace,monospace;white-space:pre;overflow:hidden;text-overflow:ellipsis;text-align:right;color:#bbb;}
  .altrow.chosen .altlabel{color:#fff;font-weight:bold;}
  .altfill{height:10px;background:#6aa3ff;border-radius:2px;}
  .altrow.chosen .altfill{background:#ffd23c;}
  .altpct{color:#888;font-variant-numeric:tabular-nums;}
- .surp{margin-top:9px;font-size:.8rem;color:#aab;font-variant-numeric:tabular-nums;}
+ .legend{margin-top:12px;}
+ /* Reserve two lines so the default branch-stats line and the shorter hover
+    readout occupy the same height (no reflow on hover). */
+ .surp{min-height:2.8em;margin-top:9px;font-size:.8rem;color:#aab;font-variant-numeric:tabular-nums;}
  .surp b{color:#ffd23c;font-weight:600;}
  .pt{cursor:pointer;transition:r .1s;}
  .plot{margin-top:10px;border-top:1px solid rgba(136,136,136,.25);padding-top:8px;}
@@ -52,13 +60,18 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  <div class="altbar" id="altbar"><div class="alttitle">hover a word for its next-token candidates</div></div>
  <div class="surp" id="surp">__STATS__</div>
  <div class="plot">__SVG__</div>
- <div class="hint">blue bar = branch point (between the shared and diverging token) · click cycles siblings, shift-click reverses · alt-click a word to split a new branch there</div>
+ <div class="legend">__LEGEND__</div>
+ <div class="hint">blue bar = branch point (between the shared and diverging token) · click cycles siblings, shift-click reverses · alt-click a word to split a new branch there · click a candidate to fork there with that token</div>
  <div class="hint" style="color:#6aa3ff;font-family:ui-monospace,monospace;">iframe node: __NODEID__</div>
  <script>
  var ALTS=__ALTS__;
  var CUM=__CUM__;
  var STATS=__STATSJS__;
  var CNT=0;
+ // State for "click a candidate to fork here": the candidates currently shown,
+ // and the split offset of the token they belong to (forkable only when that
+ // token is in the current node, i.e. it carries a data-split offset).
+ var CUR_CANDS=null, CUR_OFF=0, CUR_FORKABLE=false;
  function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
  function disp(s){return s.replace(/\\n/g,'\\u23ce').replace(/ /g,'\\u00b7')||'\\u2205';}
  function setPlot(i,on){var p=document.getElementById('p'+i);if(p){p.setAttribute('r',on?6:3);p.style.strokeWidth=on?2:0;}}
@@ -66,14 +79,32 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
  function showAlts(i){
    var a=ALTS[i],bar=document.getElementById('altbar');
    if(!a){return;}
+   var s=spanFor(i);
+   CUR_FORKABLE = !!(s && s.dataset.split!==undefined);
+   CUR_OFF = CUR_FORKABLE ? parseInt(s.dataset.split,10) : 0;
+   CUR_CANDS = a;
    var max=a[0][1]||1;
-   bar.innerHTML='<div class="alttitle">next-token candidates</div>'+a.map(function(r){
+   var title='next-token candidates'+(CUR_FORKABLE?' · click one to fork here':'');
+   bar.innerHTML='<div class="alttitle">'+title+'</div>'+a.map(function(r,idx){
      var w=Math.max(2,Math.round(r[1]/max*150));
-     return '<div class="altrow'+(r[2]?' chosen':'')+'"><span class="altlabel">'+esc(disp(r[0]))+'</span>'
+     return '<div class="altrow'+(r[2]?' chosen':'')+(CUR_FORKABLE?' forkable':'')+'" data-cand="'+idx+'">'
+       +'<span class="altlabel">'+esc(disp(r[0]))+'</span>'
        +'<span class="altfill" style="width:'+w+'px"></span>'
        +'<span class="altpct">'+(r[1]*100).toFixed(1)+'%</span></div>';
    }).join('');
  }
+ // Clicking a candidate row forks the path right before the hovered token and
+ // seeds the new branch with that candidate token (only when the token is in
+ // the current node, so we have a split offset). The token is URI-encoded so it
+ // survives the `kind:value:count` command channel intact (no stray ':').
+ document.getElementById('altbar').addEventListener('click',function(e){
+   var row=e.target.closest('.altrow');
+   if(!row || !CUR_FORKABLE || !CUR_CANDS){return;}
+   var idx=parseInt(row.dataset.cand,10);
+   var tok=CUR_CANDS[idx] && CUR_CANDS[idx][0];
+   if(tok===undefined||tok===null){return;}
+   sendCmd('forktok', CUR_OFF+'|'+encodeURIComponent(tok));
+ });
  function showSurp(i){
    var c=CUM[i],el=document.getElementById('surp');
    if(!el){return;}
@@ -151,6 +182,33 @@ _TEMPLATE = """<!doctype html><html><head><meta charset="utf-8"><style>
    p.addEventListener('mouseenter',function(){enter(i);});
    p.addEventListener('mouseleave',function(){leave(i);});
  });
+ // components.html gives the iframe a FIXED height that can't know how tall the
+ // wrapped text + plot actually render, so the bottom (plot, legend) gets
+ // clipped. allow-same-origin lets us reach our own iframe element and grow it
+ // to the real content height. Runs on load, on resize, and whenever the body
+ // changes size (fonts/SVG settling, reruns).
+ function fitHeight(){
+   try{
+     var h=Math.ceil(document.documentElement.scrollHeight);
+     var fe=window.frameElement;
+     if(!fe || !h){return;}
+     fe.style.height=h+'px';fe.setAttribute('height',h);
+     // Streamlit reserved only the height we passed to components.html; if the
+     // wrapped text is taller, the grown iframe overflows its block and draws
+     // OVER the caption/status below. So also grow the single-child wrappers
+     // around the iframe (stopping at the first multi-child ancestor — the
+     // column that also holds those siblings) so the block reflows correctly.
+     var el=fe.parentElement, hops=0;
+     while(el && el.children && el.children.length===1 && hops<6){
+       el.style.height=h+'px';
+       el=el.parentElement;hops++;
+     }
+   }catch(e){console.warn('[weft] fitHeight failed', e);}
+ }
+ window.addEventListener('load',fitHeight);
+ window.addEventListener('resize',fitHeight);
+ if(window.ResizeObserver){new ResizeObserver(fitHeight).observe(document.body);}
+ fitHeight();setTimeout(fitHeight,60);setTimeout(fitHeight,300);
  </script></body></html>"""
 
 
@@ -257,9 +315,12 @@ def build_text_component(loom):
     else:
         stats = "no logprobs yet — score this text to measure its surprisal"
 
+    legend = color_bar_html() if any_lp else ""
+
     component = (_TEMPLATE
                  .replace("__TEXT__", "".join(spans))
                  .replace("__SVG__", logprob_plot_svg(plot_points, mark_idx=mark_idx))
+                 .replace("__LEGEND__", legend)
                  .replace("__NODEID__", html.escape(loom.current_node.id))
                  .replace("__STATS__", stats)
                  .replace("__STATSJS__", json.dumps(stats))

@@ -97,10 +97,14 @@ Text that has no logprobs yet—the human-written seed, pasted text, the half yo
 keep after a split—can be **scored** to color it too (the "Color / Score"
 expander in the GUI, `S` in the TUI, or `Loom.score_node()`/`score_tree()`).
 Scoring runs an `echo=True` pass that returns the model's per-token logprobs for
-the text itself, conditioned on its prefix. It requests the top-*k* candidates
-too, so scored human-written text gets the **full** treatment—surprisal coloring,
-perplexity, *and* the hover candidates bar—just like generated text, letting you
-see what the model would rather have written at each of your own words.
+the text itself, conditioned on its prefix — that gives the surprisal coloring
+and perplexity. The echo pass can't return the top-*k* alternatives (the endpoint
+only reports those for tokens it *generates*), so to recover the hover candidates
+bar for human-written text, scoring also asks the model to predict each position
+in turn (a one-token generation per token, run concurrently and capped per node).
+The result: scored human text gets the **full** treatment — coloring, perplexity,
+*and* the candidates bar — letting you see what the model would rather have
+written at each of your own words.
 
 (In-text clicking drives navigation through the same URL query-param channel the
 GUI already uses to persist position, so it works on a saved/loaded tree—save
