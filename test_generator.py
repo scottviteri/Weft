@@ -5,7 +5,55 @@ prompt tokens belonging to the prefix so the logprobs line up with the node's
 own text. The Together call itself is exercised manually, not here.
 """
 
-from generator import _slice_to_text, Generator, GenerationConfig
+from generator import _slice_to_text, _provider_for, Generator, GenerationConfig
+
+
+class _Obj:
+    def __init__(self, **kw): self.__dict__.update(kw)
+
+
+class _EchoClient:
+    """Fake completions client for echo passes. Shapes the response like OpenAI
+    (logprobs on choices[0]) or Together (logprobs on a `prompt` field)."""
+    def __init__(self, lp, shape):
+        self.completions = self
+        self._lp = lp
+        self._shape = shape
+
+    def create(self, **kw):
+        if self._shape == "openai":
+            return _Obj(choices=[_Obj(logprobs=self._lp)])
+        return _Obj(prompt=[_Obj(logprobs=self._lp)])
+
+
+def _gen(model, provider, client):
+    g = Generator.__new__(Generator)
+    g.config = GenerationConfig(model=model, provider=provider)
+    g._client_cache = {g.provider: client}
+    return g
+
+
+def test_provider_for_routes_openai_base_models_else_together():
+    assert _provider_for("davinci-002") == "openai"
+    assert _provider_for("babbage-002") == "openai"
+    assert _provider_for("sviteri/Qwen/Qwen3-30B-A3B-Base-x") == "together"
+    assert _provider_for("davinci-002", "together") == "together"  # explicit wins
+
+
+def test_echo_logprobs_openai_reads_choices_with_top():
+    lp = _Obj(tokens=["A", "B"], token_logprobs=[None, -1.0],
+              top_logprobs=[None, {"B": -1.0, "C": -2.0}])
+    g = _gen("davinci-002", "", _EchoClient(lp, "openai"))
+    toks, tlps, top = g._echo_logprobs("AB")
+    assert toks == ["A", "B"] and tlps == [None, -1.0]
+    assert top == [None, {"B": -1.0, "C": -2.0}]
+
+
+def test_echo_logprobs_together_reads_prompt_without_top():
+    lp = _Obj(tokens=["A", "B"], token_logprobs=[None, -1.0], top_logprobs=None)
+    g = _gen("sviteri/Qwen/x", "together", _EchoClient(lp, "together"))
+    toks, tlps, top = g._echo_logprobs("AB")
+    assert toks == ["A", "B"] and top is None
 
 
 class _FakeClient:
@@ -36,7 +84,7 @@ class _FakeClient:
 def _gen_with_client(by_prompt):
     g = Generator.__new__(Generator)            # skip __init__ (no network/key)
     g.config = GenerationConfig(model="m")
-    g.client = _FakeClient(by_prompt)
+    g._client_cache = {g.provider: _FakeClient(by_prompt)}
     return g
 
 

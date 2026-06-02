@@ -264,9 +264,13 @@ with st.sidebar:
 
     # Settings
     st.subheader("Settings")
-    model = st.text_input("Model / endpoint", loom.generator.config.model,
-                          help="Together model or dedicated endpoint. Defaults to $WEFT_MODEL.")
+    model = st.text_input(
+        "Model / endpoint", loom.generator.config.model,
+        help="Together model/dedicated endpoint, or an OpenAI base model "
+             "(`davinci-002`, `babbage-002`) which routes to OpenAI and needs "
+             "OPENAI_API_KEY. Defaults to $WEFT_MODEL.")
     loom.generator.config.model = model.strip()
+    st.caption(f"backend: **{loom.generator.provider}**")
 
     temp = st.slider("Temperature", 0.1, 2.0, loom.generator.config.temperature, 0.1)
     loom.generator.config.temperature = temp

@@ -14,7 +14,24 @@ DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-eeef4023"
 # How many candidate tokens to request per position. Dedicated endpoints bill
 # per GPU-time (not per token), so capturing the top-k alternatives alongside
 # the sampled token is essentially free and powers the hover "candidates" bar.
+# (OpenAI caps completions logprobs at 5, so this is also the ceiling there.)
 TOP_K = 5
+
+# OpenAI's surviving base/completion models, reachable on the legacy
+# /v1/completions endpoint with logprobs + echo. When the configured model is
+# one of these we talk to OpenAI instead of Together. davinci-002 is the only
+# really "substantial" base model OpenAI still serves; unlike the Together
+# vLLM endpoint, its echo pass DOES return top-k for prompt tokens, so scoring
+# human text yields candidates in a single call.
+OPENAI_COMPLETION_MODELS = {"davinci-002", "babbage-002"}
+
+
+def _provider_for(model: str, provider: str = "") -> str:
+    """Which backend to use: explicit `provider`/$WEFT_PROVIDER wins, else infer
+    from the model name (OpenAI base models -> 'openai', otherwise 'together')."""
+    if provider:
+        return provider
+    return "openai" if model in OPENAI_COMPLETION_MODELS else "together"
 
 
 @dataclass
@@ -25,6 +42,8 @@ class GenerationConfig:
     temperature: float = 0.8
     top_p: float = 0.9
     num_branches: int = 3
+    # "" = auto-detect from the model name; "together" / "openai" force a backend.
+    provider: str = field(default_factory=lambda: os.environ.get("WEFT_PROVIDER", ""))
 
 
 @dataclass
@@ -105,11 +124,31 @@ def _extract(choice, params: dict | None = None) -> Generation:
 
 
 class Generator:
-    """Generate text continuations using Together API."""
+    """Generate text continuations using Together or OpenAI completions APIs."""
 
     def __init__(self, config: GenerationConfig | None = None):
-        self.client = Together()
         self.config = config or GenerationConfig()
+        self._client_cache = {}   # provider -> client (built lazily)
+
+    @property
+    def provider(self) -> str:
+        return _provider_for(self.config.model, self.config.provider)
+
+    def _client(self):
+        """Return the API client for the current provider, built on first use.
+
+        Lazy + cached per provider so the model/endpoint can change at runtime
+        (e.g. the GUI's Model field) and switch backends without reconstruction,
+        and so importing this module never requires every provider's API key.
+        """
+        provider = self.provider
+        if provider not in self._client_cache:
+            if provider == "openai":
+                from openai import OpenAI
+                self._client_cache[provider] = OpenAI()   # reads OPENAI_API_KEY
+            else:
+                self._client_cache[provider] = Together()  # reads TOGETHER_API_KEY
+        return self._client_cache[provider]
 
     def generate_continuations(
         self,
@@ -127,7 +166,7 @@ class Generator:
         tokens = max_tokens or self.config.max_tokens
         temp = temperature or self.config.temperature
 
-        response = self.client.completions.create(
+        response = self._client().completions.create(
             model=self.config.model,
             prompt=prompt,
             max_tokens=tokens,
@@ -149,7 +188,7 @@ class Generator:
         tokens = max_tokens or self.config.max_tokens
         temp = temperature or self.config.temperature
 
-        response = self.client.completions.create(
+        response = self._client().completions.create(
             model=self.config.model,
             prompt=prompt,
             max_tokens=tokens,
@@ -169,11 +208,12 @@ class Generator:
         tokens so the result aligns exactly with `text`. This colors
         human-written or imported text the same way generated text is colored.
 
-        The echo pass returns the chosen token's logprob but NOT the top-k
-        alternatives (a vLLM limitation — only *generated* tokens get top_logprobs).
-        So when `with_candidates` is set, we additionally ask the model to predict
-        each position (see `candidates_for_tokens`) to recover the hover candidates
-        bar for human-written text, up to `candidate_cap` tokens.
+        Whether the echo pass also returns the top-k alternatives depends on the
+        backend: OpenAI's davinci-002 returns them for prompt tokens (so scored
+        text gets the candidates bar in one call), but the Together vLLM endpoint
+        does not. When `with_candidates` is set and the echo pass didn't supply
+        candidates, we fall back to predicting each position individually (see
+        `candidates_for_tokens`), up to `candidate_cap` tokens.
 
         Returns a Generation whose logprobs cover `text`, or logprobs=None when
         the tokenization can't be aligned to the prefix boundary.
@@ -182,29 +222,49 @@ class Generator:
         distribution — a clean, comparable surprisal measurement, independent of
         whatever temperature generated nodes were sampled at.
         """
-        response = self.client.completions.create(
-            model=self.config.model,
-            prompt=prefix + text,
-            max_tokens=1,
-            echo=True,
-            logprobs=1,
-            temperature=1.0,
-        )
-        pr = getattr(response, "prompt", None)
-        if not pr:
+        tokens, tlps, top = self._echo_logprobs(prefix + text)
+        if not tokens:
             return Generation(text=text, logprobs=None)
-        plp = pr[0].logprobs
-        tokens = list(getattr(plp, "tokens", None) or [])
-        tlps = list(getattr(plp, "token_logprobs", None) or [])
-        logprobs = _slice_to_text(tokens, tlps, prefix, text)
+        logprobs = _slice_to_text(tokens, tlps, prefix, text, top_logprobs=top)
         if logprobs is not None:
             logprobs["params"] = {"temperature": 1.0, "model": self.config.model, "scored": True}
-            if with_candidates:
+            if with_candidates and "top_logprobs" not in logprobs:
                 tops = self.candidates_for_tokens(
                     prefix, logprobs["tokens"], logprobs["token_logprobs"], cap=candidate_cap)
                 if any(t is not None for t in tops):
                     logprobs["top_logprobs"] = tops
         return Generation(text=text, logprobs=logprobs)
+
+    def _echo_logprobs(self, prompt: str):
+        """Run an echo pass and return (tokens, token_logprobs, top_logprobs|None).
+
+        The two backends put echo logprobs in different places and differ on
+        whether they include top-k for the prompt:
+          - OpenAI: choices[0].logprobs, WITH top_logprobs (use max_tokens=0 so
+            nothing extra is generated past the echoed prompt).
+          - Together/vLLM: a separate `prompt` field, WITHOUT top_logprobs.
+        """
+        client = self._client()
+        if self.provider == "openai":
+            resp = client.completions.create(
+                model=self.config.model, prompt=prompt,
+                max_tokens=0, echo=True, logprobs=TOP_K, temperature=1.0,
+            )
+            lp = resp.choices[0].logprobs
+        else:
+            resp = client.completions.create(
+                model=self.config.model, prompt=prompt,
+                max_tokens=1, echo=True, logprobs=1, temperature=1.0,
+            )
+            pr = getattr(resp, "prompt", None)
+            if not pr:
+                return [], [], None
+            lp = pr[0].logprobs
+        tokens = list(getattr(lp, "tokens", None) or [])
+        tlps = list(getattr(lp, "token_logprobs", None) or [])
+        top = getattr(lp, "top_logprobs", None)
+        top = [dict(d) if d is not None else None for d in top] if top is not None else None
+        return tokens, tlps, top
 
     def candidates_for_tokens(self, prefix, tokens, token_logprobs=None,
                               cap: int = 120, max_workers: int = 12):
@@ -229,7 +289,7 @@ class Generator:
             if not p:                       # no context to condition on
                 return i, None
             try:
-                resp = self.client.completions.create(
+                resp = self._client().completions.create(
                     model=self.config.model, prompt=p, max_tokens=1,
                     logprobs=TOP_K, temperature=1.0,
                 )

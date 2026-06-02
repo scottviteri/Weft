@@ -42,7 +42,7 @@ This project is a simplified reimplementation of [Loom](https://github.com/socke
 |---------|------|------|
 | GUI | tkinter | Streamlit |
 | CLI/API | No | Yes (`api.py`) |
-| LLM Backend | OpenAI, GooseAI, AI21 | Together AI |
+| LLM Backend | OpenAI, GooseAI, AI21 | Together AI + OpenAI base models (davinci-002) |
 | Meta-analysis | No | Claude integration for analyzing continuations |
 | Split/trim | No | Yes (for handling loops) |
 | Block multiverse | Yes | Partial — top-k next-token candidates on hover |
@@ -129,7 +129,8 @@ pip install -r requirements.txt
 ```
 
 You'll need API keys for:
-- **Together AI** (`TOGETHER_API_KEY`) - for text generation
+- **Together AI** (`TOGETHER_API_KEY`) - for text generation (default backend)
+- **OpenAI** (`OPENAI_API_KEY`) - only if you point Weft at an OpenAI base model
 - **Anthropic** (`ANTHROPIC_API_KEY`) - for the analyze feature (optional)
 
 ### Setting Up a Together AI Endpoint
@@ -155,6 +156,26 @@ You can also set it per-run with `python loom.py --model …`, or in the GUI's
 only the fallback when `WEFT_MODEL` is unset.
 
 **Why base models?** Unlike instruction-tuned models, base models don't have a built-in "assistant" persona. They simply predict what text comes next, making them ideal for creative exploration where you want to see how the model interprets ambiguous prompts.
+
+### Other backends
+
+The backend is inferred from the model name (or forced with `$WEFT_PROVIDER`):
+
+- **OpenAI base models** — set `WEFT_MODEL=davinci-002` (or `babbage-002`) and
+  Weft routes to OpenAI's legacy completions API (needs `OPENAI_API_KEY`).
+  davinci-002 is the only substantial base model OpenAI still serves; unlike a
+  vLLM endpoint its **echo pass returns top-k for prompt tokens**, so scoring
+  human text yields the candidates bar in a single call. Caveats: top-5 logprob
+  cap, GPT-3.5-era base, and per-*token* billing.
+- **Bigger open base models** live on logprobs-capable, OpenAI-compatible
+  providers. The standout is **Llama 3.1 405B (base)** — served by
+  [Hyperbolic](https://app.hyperbolic.ai/models/llama31-405b-base-bf-16) (BF16,
+  `logprobs`/`top_logprobs` up to 20), [Together](https://www.together.ai/models/llama-3-1-405b),
+  and [OpenRouter](https://openrouter.ai/meta-llama/llama-3.1-405b).
+  [Fireworks](https://docs.fireworks.ai/api-reference/post-completions) also
+  supports `echo` + `logprobs` on completions. These are OpenAI-completions-shaped,
+  so they slot in via a base-URL/key swap (Together and OpenAI are wired in
+  today; a generic OpenAI-compatible base URL is an easy add).
 
 ## Usage
 
