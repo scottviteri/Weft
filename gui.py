@@ -70,6 +70,28 @@ def _apply_action(action, arg):
     if "file" in params:                       # for refresh durability only
         st.query_params["node"] = loom.current_node.id
 
+def _endpoint_asleep(err) -> bool:
+    s = str(err)
+    return "dedicated_endpoint_not_running" in s or "is not running" in s
+
+def model_call(spinner_label, fn):
+    """Run a model call, turning endpoint/API errors into a status message
+    instead of crashing the whole app. Returns (ok, result)."""
+    try:
+        with st.spinner(spinner_label):
+            return True, fn()
+    except Exception as e:  # together API / network errors
+        if _endpoint_asleep(e):
+            st.session_state.message = (
+                "⚠️ The generation endpoint isn't running — dedicated endpoints "
+                "scale to zero when idle. Start it from the Together dashboard "
+                "(or wait ~1–2 min for a cold start) and try again. "
+                f"Model: `{loom.generator.config.model}`"
+            )
+        else:
+            st.session_state.message = f"⚠️ Model call failed: {e}"
+        return False, None
+
 # In-text word clicks reach the app through a hidden text_input the Current Text
 # component writes to: committing it reruns over the WebSocket (no page reload),
 # and we mutate current_node in place. A per-click counter keeps repeats unique.
@@ -343,16 +365,15 @@ with col_right:
         gcol1, gcol2 = st.columns(2)
         with gcol1:
             if st.button("Generate", use_container_width=True):
-                with st.spinner("Generating..."):
-                    loom.generate(n=num_branches)
+                ok, _ = model_call("Generating...", lambda: loom.generate(n=num_branches))
+                if ok:
                     st.session_state.last_branches = loom._last_branches.copy()
                 st.rerun()
         with gcol2:
             if st.button("Continue", use_container_width=True):
-                with st.spinner("Continuing..."):
-                    loom.continue_branch()
-                    if "file" in params:
-                        st.query_params["node"] = loom.current_node.id
+                ok, _ = model_call("Continuing...", loom.continue_branch)
+                if ok and "file" in params:
+                    st.query_params["node"] = loom.current_node.id
                 st.rerun()
 
         if st.session_state.last_branches:
@@ -407,22 +428,24 @@ with col_right:
         scol1, scol2 = st.columns(2)
         with scol1:
             if st.button("Score this node", use_container_width=True):
-                with st.spinner("Scoring..."):
-                    st.session_state.message = loom.score_node()
+                ok, res = model_call("Scoring...", loom.score_node)
+                if ok:
+                    st.session_state.message = res
                 st.rerun()
         with scol2:
             if st.button("Score whole tree", use_container_width=True):
-                with st.spinner("Scoring tree..."):
-                    st.session_state.message = loom.score_tree()
+                ok, res = model_call("Scoring tree...", loom.score_tree)
+                if ok:
+                    st.session_state.message = res
                 st.rerun()
 
     with st.expander("🔍 Analyze"):
         if st.button("Analyze with Claude", use_container_width=True):
-            with st.spinner("Analyzing..."):
-                loom.analyze()
+            model_call("Analyzing...", loom.analyze)
             st.rerun()
 
 # Status message
 if st.session_state.message:
-    st.success(st.session_state.message)
+    msg = st.session_state.message
+    (st.error if msg.startswith("⚠️") else st.success)(msg)
     st.session_state.message = ""

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 # Together dedicated endpoints get a fresh hash suffix each time they're
 # recreated, so the model is read from $WEFT_MODEL when set. Update this
 # fallback or export WEFT_MODEL to point at your current endpoint.
-DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-018467e9"
+DEFAULT_MODEL = "sviteri/Qwen/Qwen3-30B-A3B-Base-eeef4023"
 
 # How many candidate tokens to request per position. Dedicated endpoints bill
 # per GPU-time (not per token), so capturing the top-k alternatives alongside
