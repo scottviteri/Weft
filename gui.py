@@ -249,6 +249,14 @@ with st.sidebar:
                     st.query_params["node"] = loom.current_node.id
                 st.rerun()
 
+    # Jump to the tip of the longest branch below here (whole tree from root).
+    if st.button("⬇️ Deepest", use_container_width=True,
+                 disabled=not loom.current_node.children, key="nav_deepest"):
+        loom.deepest()
+        if "file" in params:
+            st.query_params["node"] = loom.current_node.id
+        st.rerun()
+
     # Children navigation
     if loom.current_node.children:
         st.write("Children:")

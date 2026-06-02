@@ -251,6 +251,7 @@ python loom.py
 | `k` | Show top-*k* next-token candidates for the current node |
 | `S` | Score the current node (per-token logprobs for human-written text) |
 | `r` | Go to root |
+| `z` | Zoom to the deepest node (tip of the longest branch below the current one) |
 | `t` | Show tree structure |
 | `s` | Save |
 | `o` | Options (temperature, etc.) |

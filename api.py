@@ -315,6 +315,23 @@ class Loom:
             return f"Moved to node {node_id}, depth {self.depth}"
         return f"Error: Node {node_id} not found."
 
+    def deepest(self) -> str:
+        """Zoom to the deepest descendant below the current node.
+
+        At each step follows the child whose subtree reaches farthest, landing
+        on the tip of the longest branch below the current position (the whole
+        tree's deepest leaf when called from the root). Ties pick the first such
+        child. A no-op at a leaf.
+        """
+        def subtree_depth(node: Node) -> int:
+            return 1 + max((subtree_depth(c) for c in node.children), default=0)
+
+        node = self.current_node
+        while node.children:
+            node = max(node.children, key=subtree_depth)
+        self.current_node = node
+        return f"Zoomed to deepest node {node.id}, depth {self.depth}"
+
     def child(self, n: int) -> str:
         """Go to nth child (1-indexed)."""
         idx = n - 1

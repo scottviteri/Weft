@@ -295,6 +295,36 @@ def test_branch_with_text_seeds_new_sibling(loom):
     assert loom.current_node is node.children[1]
 
 
+def test_deepest_descends_the_longest_branch(loom):
+    loom.write("root")
+    r = loom.tree.root
+    a = loom.tree.add_branch(r.id, "A")
+    loom.tree.add_branch(a.id, "A1")            # A subtree: depth 2
+    b = loom.tree.add_branch(r.id, "B")
+    b1 = loom.tree.add_branch(b.id, "B1")
+    b2 = loom.tree.add_branch(b1.id, "B2")      # B subtree: depth 3 (deepest)
+    loom.root()
+    loom.deepest()
+    assert loom.current_node is b2
+
+
+def test_deepest_is_noop_at_leaf(loom):
+    loom.write("root")
+    loom.deepest()                               # root is a leaf -> stays put
+    assert loom.current_node is loom.tree.root
+
+
+def test_deepest_is_relative_to_current_node(loom):
+    loom.write("root")
+    r = loom.tree.root
+    loom.tree.add_branch(r.id, "A")              # shallow sibling
+    b = loom.tree.add_branch(r.id, "B")
+    b1 = loom.tree.add_branch(b.id, "B1")
+    loom.current_node = b                        # descend from B, not root
+    loom.deepest()
+    assert loom.current_node is b1
+
+
 def test_branch_with_text_at_zero_forks_sibling_of_current(loom):
     loom.write("seed")
     loom.write(" tail")            # child; current is the child

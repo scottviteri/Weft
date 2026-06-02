@@ -133,6 +133,7 @@ class LoomUI:
   [cyan]n[/cyan] / [cyan]p[/cyan]         - Next / previous sibling (cycle a branch point)
   [cyan]b[/cyan] / [cyan]branch[/cyan]    - Split current node here and open a new sibling
   [cyan]r[/cyan] / [cyan]root[/cyan]      - Go back to root
+  [cyan]z[/cyan] / [cyan]deepest[/cyan]   - Zoom to the tip of the longest branch below here
   [cyan]t[/cyan] / [cyan]tree[/cyan]      - Show full tree structure
   [cyan]s[/cyan] / [cyan]save[/cyan]      - Save tree to file
   [cyan]o[/cyan] / [cyan]options[/cyan]   - Configure generation settings
@@ -364,6 +365,9 @@ class LoomUI:
 
             elif cmd in ("r", "root"):
                 self.loom.root()
+
+            elif cmd in ("z", "deepest", "deep"):
+                self.console.print(f"[cyan]{self.loom.deepest()}[/cyan]")
 
             elif cmd in ("t", "tree"):
                 self.display_tree_structure()
