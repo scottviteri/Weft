@@ -23,3 +23,5 @@ Thumbs.db
 trees/*.json
 !trees/example_machine_dreams.json
 !trees/prophecies_davinci002.json
+.ipynb_checkpoints/
+node_modules/
