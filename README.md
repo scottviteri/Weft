@@ -2,6 +2,12 @@
 
 Explore branching text continuations from base LLMs, with Claude meta-analysis to reveal how the model interprets your text. A tree-based writing interface inspired by [socketteer/loom](https://github.com/socketteer/loom).
 
+> **Status: active prototype.** The Streamlit GUI, terminal interface, and
+> Python API are functional, and the offline test suite covers the core tree,
+> navigation, scoring, and rendering behavior. Provider APIs and base-model
+> availability can change, and the library interface is not yet promised to be
+> stable. Generating new trees requires a compatible paid model endpoint.
+
 ![Streamlit GUI](Images/gui.png)
 
 ## What is this?
@@ -313,4 +319,4 @@ The stochasticity of base models becomes an advantage when you can apply selecti
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).
